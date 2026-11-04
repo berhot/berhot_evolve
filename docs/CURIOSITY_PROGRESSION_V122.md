@@ -5,7 +5,7 @@ and PyTorch ranker. It does **not** replace or reset prior checkpoints.
 
 ## One sequence on the Mac
 
-\`\`\`bash
+```bash
 git switch main
 git pull --ff-only origin main
 python3 -m pip install -e '.[train]'
@@ -21,14 +21,14 @@ python3 -m evolve v121-cycle --network --max-topics 8 --max-requests 6 --steps 1
 
 # Compact status (including holdout and lexical comparison when trained)
 python3 -m evolve v121-report
-\`\`\`
+```
 
 ## What changed
 
 ### 1. Curious about **new** observed words, not the same words forever
 
 The planner checks previously researched/cached subjects in
-\`v119_finding:...\`, same-UTC-day attempts from the v1.21 cycle, and unresolved
+`v119_finding:...`, same-UTC-day attempts from the v1.21 cycle, and unresolved
 research retry cooldowns. It excludes subjects already answered by an
 approved-source definition. If no previously unattempted topics remain, it
 returns an explicit empty queue. It does not manufacture arbitrary new topics.
@@ -39,7 +39,7 @@ a model answer without appropriate rights and evaluation.
 
 ### 2. Rights/source evidence qualification
 
-\`python3 -m evolve v122-evidence\` reads each archived, hash-verified HTML
+`python3 -m evolve v122-evidence` reads each archived, hash-verified HTML
 extraction, without making network requests or modifying its rights status.
 The report shows:
 
@@ -63,12 +63,12 @@ trains on training-only pairs, chooses whether to accept by held-out
 validation, and scores the test set once. v1.22 additionally scores those
 same frozen source-host-held-out pairs using the original lexical formula.
 
-The model record's \`benchmark\` includes:
+The model record's `benchmark` includes:
 
-- \`lexical_validation\`, \`lexical_test\`
-- \`neural_validation_pair_accuracy\`, \`neural_test_pair_accuracy\`
-- \`validation_accuracy_delta_vs_lexical\`, \`test_accuracy_delta_vs_lexical\`
-- \`outperformed_lexical_on_unseen_test_hosts\`
+- `lexical_validation`, `lexical_test`
+- `neural_validation_pair_accuracy`, `neural_test_pair_accuracy`
+- `validation_accuracy_delta_vs_lexical`, `test_accuracy_delta_vs_lexical`
+- `outperformed_lexical_on_unseen_test_hosts`
 - explicit flags that **test is not used to promote a checkpoint**.
 
 This is an honestly limited benchmark. The negative candidates come from
@@ -82,7 +82,7 @@ more diverse sourced and independently reviewed QA data.
 
 Your last run had 4 USGS training, 5 NASA validation, 0 NOAA testing
 definitions. This is enough for source-quote exercises but not an independent
-neural ranker evaluation. EVOLVE will report \`needs_diverse_definitions\`
+neural ranker evaluation. EVOLVE will report `needs_diverse_definitions`
 instead of training on the validation publisher or inventing test data.
 The evidence report helps identify archived candidate articles; additional
 lawfully reusable material from an independent host is still needed.
