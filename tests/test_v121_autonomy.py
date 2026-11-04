@@ -14,7 +14,8 @@ from evolve.settings import load_config
 from evolve.store import Store
 from evolve.v120_grounded import grounded_answer
 from evolve.v121_autonomy import (
-    source_questions, curiosity_queue, build_lesson_bank, audit_quiz,
+    source_questions, curiosity_queue, question_for_topic,
+    build_lesson_bank, audit_quiz,
     plan, cycle, history, learning_report,
 )
 from evolve.v122_evidence import evidence_report
@@ -100,6 +101,31 @@ class AutonomyTests(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_curiosity_question_quality_and_plural_framing(self):
+        self.assertIsNone(question_for_topic("nasa"))
+        self.assertIsNone(question_for_topic("natural"))
+        self.assertEqual(question_for_topic("gas"), "What is gas?")
+        self.assertEqual(question_for_topic("greenhouse"), "What is greenhouse?")
+        self.assertEqual(question_for_topic("continents"), "What are continents?")
+        self.assertEqual(question_for_topic("emissions"), "What are emissions?")
+        self.assertEqual(question_for_topic("natural selection"),
+                         "What is natural selection?")
+        with tempfile.TemporaryDirectory() as root:
+            store = Store(root)
+            try:
+                populate(store, hosts=2)
+                for topic in ("nasa", "natural", "continents", "gas"):
+                    store.add_concept_task(
+                        topic, "https://nasa.example.org/science", priority=10)
+                queue = curiosity_queue(store, limit=8)
+                self.assertEqual(
+                    {q["question"] for q in queue["questions"]},
+                    {"What are continents?", "What is gas?"})
+                self.assertGreaterEqual(
+                    queue["deferred_by_reason"]["invalid_or_unsupported_topic"], 2)
+            finally:
+                store.close()
+
     def test_research_progression_skips_cached_and_cooldown_topics(self):
         with tempfile.TemporaryDirectory() as root:
             store = Store(root)
@@ -150,6 +176,17 @@ class AutonomyTests(unittest.TestCase):
                     noai=False)
                 result = evidence_report(store)
                 self.assertEqual(result["status"], "review_only")
+                host_only = evidence_report(store, host="unreviewed.example.org")
+                self.assertEqual(host_only["filtered_host"], "unreviewed.example.org")
+                self.assertEqual(host_only["sources_examined"], 1)
+                self.assertEqual(host_only["sources"][0]["host"],
+                                 "unreviewed.example.org")
+                self.assertEqual(
+                    evidence_report(
+                        store, host="https://unreviewed.example.org/docs"
+                    )["sources_examined"], 1)
+                with self.assertRaises(ValueError):
+                    evidence_report(store, host="https://")
                 self.assertGreaterEqual(result["sources_examined"], 3)
                 proposal = next(item for item in result["sources"]
                                 if item["host"] == "unreviewed.example.org")
