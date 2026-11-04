@@ -46,7 +46,7 @@ def _checkpoint(record, root):
         result["accepted_by_validation"] = bool(record["accepted_by_validation"])
     else:
         result["accepted_by_validation"] = None
-        result["acceptance_note"] = "No acceptance decision field recorded"
+        result["acceptance_note"] = "Not recorded in this checkpoint's metadata"
     return result
 
 
