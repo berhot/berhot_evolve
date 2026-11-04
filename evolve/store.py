@@ -465,6 +465,9 @@ class Store:
             "unsupported_open_questions": self.unsupported_question_count(),
             "last_arithmetic_evaluation": self.get("last_arithmetic_evaluation"),
             "numeric_lab_latest": self.get("numeric_lab_latest"),
+            "rule_lab_latest_candidate": self.get("rule_lab_latest_candidate"),
+            "magnitude_lab_latest": self.get("magnitude_lab_latest"),
+            "magnitude_lab_latest_candidate": self.get("magnitude_lab_latest_candidate"),
             "concepts_discovered": self.db.execute("SELECT COUNT(*) FROM concept_tasks").fetchone()[0],
             "latest_promoted_model": dict(self.latest_promoted()) if self.latest_promoted() else None,
         }
