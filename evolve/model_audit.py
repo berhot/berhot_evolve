@@ -30,13 +30,22 @@ def _checkpoint(record, root):
                 "accepted": record.get("accepted")}
     # Checkpoint refs are untrusted store metadata: only report verified hashes.
     expected = record.get("sha256")
-    return {
+    result = {
         "status": "sha256_verified" if expected and _digest(path) == expected
         else "hash_missing_or_mismatch",
         "seed": record.get("seed"),
-        "accepted_by_validation": bool(record.get("accepted", False)),
         "sha256": expected,
     }
+    # The general registry stores 'promoted', not 'accepted'; absence of
+    # a field must never be presented as a negative decision.
+    if "promoted" in record:
+        result["promoted"] = bool(record["promoted"])
+    if "accepted" in record:
+        result["accepted_by_validation"] = bool(record["accepted"])
+    else:
+        result["accepted_by_validation"] = None
+        result["acceptance_note"] = "Not recorded under the accepted key"
+    return result
 
 
 def audit_model_and_ownership(store, settings=None):
