@@ -25,6 +25,8 @@ def main(argv=None):
     explore.add_argument('--limit', type=int, default=8)
     explore.add_argument('--cross-host', action='store_true', help='Follow public links across domains within crawl budgets')
     sub.add_parser("status", help="Show persistent learner status")
+    errors_parser = sub.add_parser("errors", help="Show exact failed website URLs and stored error reasons")
+    errors_parser.add_argument("--limit", type=int, default=10)
     concept_parser = sub.add_parser("concepts", help="Show discovered concepts ranked by page evidence")
     concept_parser.add_argument("--limit", type=int, default=20)
     train_parser = sub.add_parser("train", help="Train model candidate with PyTorch")
@@ -54,6 +56,8 @@ def main(argv=None):
         try:
             if args.command == "status":
                 result = store.status()
+            elif args.command == "errors":
+                result = {"errors": store.recent_web_errors(args.limit)}
             elif args.command == "concepts":
                 result = {"concepts": store.list_concept_tasks(args.limit)}
             elif args.command == 'explore':
