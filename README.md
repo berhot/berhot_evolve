@@ -1,3 +1,42 @@
+# BERHOT EVOLVE v1.14 — Measure Web-Language Learning vs Byte Frequency
+
+The user's 80-step Energy-article experiment reduced next-byte loss but
+greedy generation collapsed to spaces and `e`. v1.14 checks that result
+against a matched, **training-only 256-byte unigram predictor** rather
+than interpreting loss reduction as factual comprehension.
+
+```bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+
+# No training/network calls or checkpoint changes:
+python3 -m evolve web-diagnose --prompt 'Energy is' --new-bytes 80 \
+  --seed 42 --temperature 0.9
+
+# Compare same checkpoint with both decoding modes:
+python3 -m evolve web-predict --prompt 'Energy is' --new-bytes 100 \
+  --decoding sample --temperature 0.85 --seed 42
+
+# Optional fresh longer experiment; separate checkpoint, NOT a resume:
+python3 -m evolve web-lab --steps 400 --seed 31415 --device cpu \
+  --include-unknown-rights --diagnostic-within-document
+```
+
+The diagnostic reports matched-window neural vs train-only unigram
+cross entropy in nats, perplexities, greedy and sampled continuation,
+space fraction, repetition and unique-byte counts. A lower neural
+loss than a basic unigram matters more than merely beating the
+randomly initialized neural baseline.
+
+Sampling makes output variable but cannot improve neural weights.
+The current same-article splits still cannot prove independent
+generalization; require multiple host-heldout articles for that.
+No existing checkpoint, source archive or model registry is mutated
+by `web-diagnose`; PyTorch remains an external neural dependency.
+
+More detail: docs/WEB_DIAGNOSTICS_V114.md.
+
+## Previous version — v1.13
 # BERHOT EVOLVE v1.13 — Complete Corpus-to-Neural Learning Experiment
 
 **One-shot command using the current archived Energy article**:
