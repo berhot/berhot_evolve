@@ -1,4 +1,61 @@
-# BERHOT EVOLVE v0.8 — Answer-Focused Training & Honest Skill Evaluation
+# BERHOT EVOLVE v0.9 — Overfitting Protection and Structured Numeric Learning
+
+## What the real macOS results showed
+
+- Mixed arithmetic byte-based specialist: 400 training steps, training answer loss
+  **2.6185 → 0.0065**, but held-out answer loss **2.5784 → 3.3191**
+  and **0/20** correct on unseen math; **17/20** outputs were numeric.
+- Single-digit addition byte-based specialist: held-out loss **2.3033 → 1.9399**,
+  **0/10** correct even within the training operand range, and **0/10** on
+  two-digit extrapolation.
+- This is **overfitting** and a failure to generalize; formatting improvement
+  should not be confused with real arithmetic.
+
+## v0.9 changes
+
+1. **Safer checkpoint acceptance:** every new math specialist, including the
+   **first**, must lower held-out answer loss relative to its pre-training
+   baseline or previous accepted checkpoint. An initial checkpoint with
+   held-out loss rising from 2.58 to 3.32 now fails promotion.
+   The trainer checks held-out loss throughout optimization, retains the
+   best validation step, and stops early after repeated non-improvement.
+   Existing old checkpoints are not deleted or silently changed.
+2. **Separate structured numerical experiment:** 
+   \`numeric-lab\` trains ten **learned scalar digit embeddings** with
+   an explicitly additive composition layer. This strong, task-specific
+   architectural assumption makes the relation easier to learn than from
+   byte-level text alone. It is not a general language model or an
+   autonomously discovered algorithm.
+3. **Strict evaluation split:** 55 unordered pairs from 0..9 are divided
+   into **35 training**, **10 validation**, and **10 unseen test** groups.
+   Reverse operand order never leaks between them. Test labels are used
+   only for final scoring, not for gradient updates or selecting a model.
+4. **Isolated checkpoint:** model and split metadata are saved under
+   \`storage/models/numeric_lab/\` and indexed separately. This does not
+   overwrite the existing general, mixed-math, or single-digit byte models.
+
+### Run on macOS
+
+\`\`\`bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+# A new isolated, fully neural addition experiment:
+python3 -m evolve numeric-lab --steps 400 --seed 42
+# Query its learned digit parameters (not the Python verifier):
+python3 -m evolve numeric-predict --a 9 --b 8
+# Previous byte models remain available for honest comparison:
+python3 -m evolve assess --skill single-digit-add --distribution both --questions 10
+python3 -m evolve status
+\`\`\`
+
+The structured model is expected to perform better **within single-digit addition**
+because its architecture encodes the compositional form of addition. That
+cannot establish general arithmetic reasoning or web-based learning. To
+expand the genuine language model, we will need a numerically aware
+representation, larger **independent** corpora, and rigorous transfer tests.
+Do not merge these metrics with general byte-level validation loss.
+
+## v0.8 — Answer-Focused Training & Honest Skill Evaluation
 
 ## Why v0.8 exists
 
