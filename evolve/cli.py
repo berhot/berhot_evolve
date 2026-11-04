@@ -82,6 +82,7 @@ def main(argv=None):
     study_cycle.add_argument("--steps", type=int, default=120)
     study_cycle.add_argument("--seed", type=int, default=31415)
     sub.add_parser("v121-history", help="Show prior autonomous cycle results and saved question-bank manifest")
+    sub.add_parser("v121-report", help="Compact last-cycle scientific learning report and next source-host requirements")
     studio = sub.add_parser("studio", help="Launch local live web dashboard with chat and controlled learning")
     studio.add_argument("--port", type=int, default=8787)
     studio.add_argument("--interval", type=int, default=3600,
@@ -426,6 +427,9 @@ def main(argv=None):
             elif args.command == "v121-history":
                 from .v121_autonomy import history
                 result = history(store)
+            elif args.command == "v121-report":
+                from .v121_autonomy import learning_report
+                result = learning_report(store)
             elif args.command == "v120-ask":
                 from .v120_grounded import grounded_answer
                 result = grounded_answer(store, args.question)

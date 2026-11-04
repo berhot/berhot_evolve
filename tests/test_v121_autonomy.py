@@ -15,7 +15,7 @@ from evolve.store import Store
 from evolve.v120_grounded import grounded_answer
 from evolve.v121_autonomy import (
     source_questions, build_lesson_bank, audit_quiz,
-    plan, cycle, history,
+    plan, cycle, history, learning_report,
 )
 
 try:
@@ -117,6 +117,13 @@ class AutonomyTests(unittest.TestCase):
                 self.assertNotEqual(report["heldout_readiness"]["status"], "ready")
                 self.assertEqual(history(store)["recent_runs"][-1]["status"],
                                  "completed_with_training_blocker")
+                compact = learning_report(store)
+                self.assertEqual(compact["status"], "completed_with_training_blocker")
+                self.assertEqual(compact["network_requests_in_last_cycle"], 0)
+                self.assertFalse(compact["ranker"]["candidate_weights_trained"])
+                self.assertGreaterEqual(
+                    compact["missing_to_train_at_last_cycle"]["test"]["examples"], 2)
+                self.assertFalse(compact["understanding_proven"])
             finally:
                 store.close()
 

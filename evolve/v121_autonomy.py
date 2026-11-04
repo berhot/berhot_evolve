@@ -419,3 +419,75 @@ def history(store):
         "latest_quiz_manifest": store.get(_QUIZ_KEY),
         "warning": "Neural learned knowledge cannot be inferred from source retrieval.",
     }
+
+
+def learning_report(store):
+    """Compact and honest progress dashboard for the last actual local cycle.
+
+    This is read-only and cannot consume research requests or train weights.
+    """
+    latest = store.get("v121_last_cycle")
+    if not latest:
+        return {
+            "status": "no_cycle_yet",
+            "next_command": "python3 -m evolve v121-cycle --network --max-topics 6 --max-requests 6 --steps 120",
+            "new_neural_weights": False,
+        }
+    evaluation = latest.get("local_quiz_audit") or {}
+    training = latest.get("neural_training") or {}
+    # Use the *last completed cycle's* readiness snapshot. Recomputing
+    # readiness would call freeze_dataset() and write files, violating this
+    # command's read-only contract.
+    ready = latest.get("heldout_readiness") or {}
+    missing = {}
+    for split in ("train", "val", "test"):
+        count = (ready.get("counts") or {}).get(split, 0)
+        topics = (ready.get("unique_topics") or {}).get(split, 0)
+        missing[split] = {
+            "examples": max(0, {"train": 4, "val": 2, "test": 2}[split] - count),
+            "distinct_topics": max(0, 2 - topics),
+        }
+    results = latest.get("research_outcomes") or []
+    return {
+        "status": latest.get("status"),
+        "cycle_utc": latest.get("started_at_utc"),
+        "curiosity_questions": [
+            item.get("question") for item in
+            (latest.get("curiosity_questions") or [])[:12]],
+        "research_results": [
+            {"question": item.get("question"),
+             "status": item.get("status"),
+             "requests_used": item.get("requests_used", 0),
+             "reason": item.get("reason")}
+            for item in results[:12]
+        ],
+        "network_requests_in_last_cycle":
+            latest.get("new_requests_this_cycle", 0),
+        "source_lessons": (latest.get("source_derived_quiz_bank") or {}).get(
+            "questions_created", 0),
+        "source_quiz": {
+            "passed": evaluation.get("pass"),
+            "tested": evaluation.get("tested"),
+            "meaning": "exact saved-source quote and SHA integrity; NOT general knowledge",
+        },
+        "ranker": {
+            "training_status": training.get("status"),
+            "reason": training.get("reason"),
+            "candidate_weights_trained":
+                bool(latest.get("new_neural_weights_trained")),
+            "accepted_after_validation":
+                bool(latest.get("accepted_neural_weights")),
+            "heldout_test": training.get("test_after"),
+            "requires_three_independent_host_partitions": True,
+        },
+        "missing_to_train_at_last_cycle": missing,
+        "source_hosts_by_split_at_last_cycle": ready.get("source_hosts", {}),
+        "understanding_proven": False,
+        "new_web_research_automatically_training_eligible": False,
+        "next_action": (
+            "Acquire and individually rights-review usable science definitions "
+            "from at least one independent test-source host; rerun readiness."
+            if ready.get("status") != "ready" else
+            "Read heldout test and validation metrics; inspect incorrect and unanswerable queries."
+        ),
+    }

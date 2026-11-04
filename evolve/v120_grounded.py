@@ -30,7 +30,12 @@ _BAD_TOPIC = {
     "which", "what", "many", "most", "some", "more", "other", "each",
     "our", "all", "one", "two", "three", "world", "people", "today",
     "scientists", "researchers", "article", "information",
+    "result", "example", "figure", "section", "page", "content",
+    "thing", "text", "website", "document",
 }
+# An article can explain a term without actually defining the term's subject:
+# "The word photosphere is ..." must not create a topic "word photosphere".
+_META_SUBJECT_PREFIX = ("word ", "term ", "phrase ", "name ")
 _PREDICATE = re.compile(
     r"^(?:an?\s+|the\s+|one\s+of\s+|part\s+of\s+|"
     r"made\s+of\s+|composed\s+of\s+|formed\s+from\s+|"
@@ -65,7 +70,7 @@ def topic_from_question(question):
     if not m:
         return None
     topic = m["topic"].casefold()
-    if topic in _BAD_TOPIC:
+    if topic in _BAD_TOPIC or topic.startswith(_META_SUBJECT_PREFIX):
         return None
     if topic.startswith(("why ", "where ", "when ", "how ", "who ")):
         return None
@@ -84,7 +89,8 @@ def extract_definition(sentence):
     if not match:
         return None
     topic = match["topic"].casefold()
-    if topic in _BAD_TOPIC or any(w.casefold() in _BAD_TOPIC for w in topic.split()):
+    if (topic in _BAD_TOPIC or topic.startswith(_META_SUBJECT_PREFIX) or
+            any(w.casefold() in _BAD_TOPIC for w in topic.split())):
         return None
     predicate = match["predicate"].strip()
     # Don't interpret an arbitrary adverb ("roughly", "sometimes") as
