@@ -29,6 +29,36 @@ _QUIZ_KEY = "v121_quiz_bank_latest"
 _ATTEMPTS_KEY = "v121_network_attempts"
 _RECENT_MAX = 80
 
+# Narrow learner is studying scientific *concepts*, not organization names,
+# vague adjectives or website navigation. A real noun phrase containing one
+# of these words (e.g. "natural selection") remains eligible.
+_NON_CONCEPT_TOPICS = {
+    "nasa", "noaa", "usgs", "faq", "urls", "http", "https",
+    "natural", "general", "latest", "recent", "global", "local",
+    "national", "federal", "different", "available", "important",
+    "official", "free", "new", "old", "updated", "several",
+    "resources", "overview", "related", "about", "information",
+}
+_SINGULAR_ENDING_S = {
+    "gas", "mass", "glass", "grass", "news", "physics",
+    "mathematics", "statistics", "series", "species",
+}
+
+
+def question_for_topic(topic):
+    """Conservative English singular/plural framing, not a POS tagger."""
+    topic = _topic_ok(topic)
+    if topic is None:
+        return None
+    last = topic.split()[-1]
+    plural = (
+        last.endswith("s") and
+        not last.endswith(("ss", "us", "is")) and
+        last not in _SINGULAR_ENDING_S
+    )
+    return ("What are " if plural else "What is ") + topic + "?"
+
+
 
 def _utc():
     return datetime.now(timezone.utc).isoformat()
@@ -61,8 +91,9 @@ def _topic_ok(raw):
             r"[a-z][a-z\- ]{2,48}", topic):
         return None
     # Prevent names of UI elements and policy terms from becoming research tasks.
-    if topic in {"cookie policy", "privacy policy", "submit", "subscribe",
-                 "sign in", "login", "menu", "latest news", "navigation"}:
+    if (topic in _NON_CONCEPT_TOPICS or
+            topic in {"cookie policy", "privacy policy", "submit", "subscribe",
+                      "sign in", "login", "menu", "latest news", "navigation"}):
         return None
     return topic
 
@@ -121,7 +152,7 @@ def curiosity_queue(store, limit=8):
             return
         pending.append({
             "topic": topic,
-            "question": "What is " + topic + "?",
+            "question": question_for_topic(topic),
             "observed_at": url,
             "origin": origin,
             "priority": round(float(priority), 3),
