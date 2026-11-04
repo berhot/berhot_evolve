@@ -262,6 +262,27 @@ def _accepted_model(store):
     return model, record
 
 
+def _identity_priority(topic, quote):
+    """Heuristic: an identity/classification outranks incidental attributes.
+
+    This only reorders literal citations; it does not assert factual
+    correctness or update neural weights. Exact topic boundary required.
+    """
+    pattern = re.compile(
+        r"^(?:(?:The|A|An|Our)\s+)?"
+        + re.escape(topic)
+        + r"\s+(?:is|are)\s+(?P<tail>.+)", re.I)
+    match = pattern.match(quote)
+    if match is None:
+        return 0.0
+    tail = match["tail"].casefold()
+    if re.match(r"(?:made\s+of|composed\s+of|located\s+|the\s+largest|the\s+smallest)", tail):
+        return -2.0
+    if re.match(r"(?:an?\s+|the\s+only\s+|a\s+type\s+of\s+|one\s+of\s+)", tail):
+        return 3.5
+    return 0.0
+
+
 def grounded_answer(store, question, limit=3):
     """Cite the exact full source definition, never synthesize a causal claim."""
     topic = topic_from_question(question)
@@ -294,6 +315,9 @@ def grounded_answer(store, question, limit=3):
         torch, _ = require_torch()
     for fact in candidates:
         base = _lexical_score(question, fact)
+        # Identity answers are preferred for "what is" questions. A model
+        # cannot win by selecting a subject's unrelated size/composition fact.
+        base += _identity_priority(topic, fact["answer"])
         neural = 0.0
         if model is not None:
             with torch.no_grad():
@@ -380,9 +404,13 @@ def _pairs(facts, cap=150):
         if not alternatives:
             continue
         negative = alternatives[(i * 7 + 3) % len(alternatives)]
-        question = positive["question"]
-        result.append((_features(question, positive),
-                       _features(question, negative)))
+        # Self-generated source-locked question variants allow neural
+        # ranking to train on genuine question/evidence pairs, not only
+        # the one hard-coded "What is X?" form. Both variants stay in the
+        # same SOURCE HOST split, preventing duplicate-question leakage.
+        for question in (positive["question"], "Define " + positive["topic"]):
+            result.append((_features(question, positive),
+                           _features(question, negative)))
     return result
 
 
