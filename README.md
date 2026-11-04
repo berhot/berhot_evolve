@@ -1,3 +1,104 @@
+# BERHOT EVOLVE v1.9 — Verified Text → Neural Recall
+
+## Why move beyond arithmetic?
+
+The user's v1.8 Mac study showed Adam-trained heads with much better
+500–999 extrapolation than plain SGD, but neither result showed natural
+language understanding. v1.9 tests one limited step toward the project
+goal: acquire concepts from **eligible, independently corroborated text**
+and answer held-out question phrasings from neural weights alone.
+
+## What v1.9 actually does
+
+The existing research pipeline first persists `verified_answers` with
+two independent publisher groups and explicit CC0/public-domain evidence,
+plus one `verified:definition` training document. v1.9 reads ONLY verified,
+rights-admitted, `split='train'` definition documents that exactly match
+their persisted proof record. All research-only pages, unlicensed answers,
+non-definition documents, and documents reserved in the original
+global `val` split are excluded. v1.9 never crawls websites implicitly.
+
+A separate tiny **byte-level causal Transformer** learns to produce
+definition text from supervised question-answer sequences. Its loss
+covers **answer bytes only**; question bytes are masked. It uses three
+training phrasings per known concept and a separate validation phrasing
+to select checkpoint weights. The final two **held-out phrasings of
+those same concepts** are evaluated only AFTER selecting weights.
+It reports before/after neural raw completions, exact-match accuracy,
+token-overlap F1, per-concept breakdown, incorrect cross-concept answers,
+and a never-trained unknown-concept negative-control prompt.
+
+Most importantly, `concept-predict` reads ONLY its SHA256-verified saved
+neural checkpoint. It does not search verified answers, documents,
+skills or memory, and it never replaces its raw completion with a known
+definition. Poor or zero exact accuracy must remain visible.
+
+This is **same-concept prompt-paraphrase testing**, not
+generalization to entirely new facts. Synthetic local CI sources verify
+the admission workflow but are NOT falsely marketed as real public
+research, and are never uploaded into the user's persistent database.
+
+### Run on your Mac
+
+```bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+
+# First verify that your own existing DB contains eligible definitions:
+python3 -m evolve concept-inventory
+
+# If at least TWO train-split concepts are available, train:
+python3 -m evolve concept-lab --steps 300 --seed 31415 --max-concepts 8
+
+# Generate the answer from saved model weights, without retrieval:
+python3 -m evolve concept-predict --question 'Describe volcano.'
+
+# Re-evaluate saved model after process restart (read-only):
+python3 -m evolve concept-evaluate
+
+# Or inspect unaccepted candidate with honest labeling:
+python3 -m evolve concept-evaluate --candidate
+python3 -m unittest discover -s tests -v
+```
+
+For a concise report that avoids copying the full output:
+
+```bash
+python3 -m evolve concept-lab --steps 300 | python3 -c '
+import json,sys
+r=json.load(sys.stdin)
+print("Status:",r["status"],"Reason:",r.get("reason"))
+if r["status"]=="trained":
+ print("Concepts:",r["concepts"])
+ print("Accepted:",r["accepted"],"Steps:",r["actual_steps"])
+ print("Val loss:",r["validation_answer_loss_before"],"->",r["validation_answer_loss_after"])
+ print("Heldout before:",r["before_heldout"]["exact_accuracy"])
+ print("Heldout after:",r["after_heldout"]["exact_accuracy"])
+ for x in r["after_heldout"]["examples"]:
+  print(x["question"],"=>",repr(x["raw_completion"]),"correct:",x["exact_match"])
+'
+```
+
+If `concept-inventory` says `insufficient_verified_facts`, **do not
+fabricate a training set**. Use the existing `explore --seed-url` and
+`research` commands to gather independent, reusable source claims.
+A minimum of two admitted `train`-split definitions is required; because
+the existing store reserves its first (and each fifth) document for
+validation, this can require three or more verified definition records.
+Any rights/verification failures must remain research-only.
+
+Checkpoints are stored separately under `storage/models/concept_lab/`,
+and accepted concept candidates are **not promoted** into the general
+language-model registry. If additional eligible definitions arrive,
+the next run can warm-start from the last accepted concept checkpoint.
+No original models or user evidence are overwritten.
+
+**Limitations:** Two agreeing source groups can still be wrong. Passing
+a byte-level loss threshold is not equivalent to correct factual recall.
+The model may overfit and may hallucinate on unseen concepts; we must
+inspect exact raw held-out answers and not just training loss.
+
+## Previous version — v1.8
 # BERHOT EVOLVE v1.8 — Gradient-Only Head Training (Adam vs SGD)
 
 ## Grounding in real Mac results
