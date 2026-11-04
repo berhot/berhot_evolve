@@ -1,8 +1,15 @@
-# BERHOT EVOLVE v0.3 — Open-Web Research Explorer
+# BERHOT EVOLVE v0.4 — Content-Grounded Discovery
 
 This is an **experimental learning platform**, not a self-conscious agent or general autonomous intelligence. It introduces a way to **explore public HTTPS pages without requiring a declared training license at each page**, while **separating observations from training data**. The project still uses a randomly initialized, tiny byte-level PyTorch Transformer. Concept selection is heuristic, not yet intelligent self-directed research.
 
-## The change from v0.2
+## Changes in v0.4
+
+- No user-selected focus word. EVOLVE extracts candidates from each visited page and ranks observed terms using its title, headings and repeated words.
+- The old `--focus` option is accepted for compatibility but ignored; it cannot create unrelated learning topics.
+- New `python -m evolve concepts --limit 20` command lists candidates and their source URLs.
+- SQLite task-priority fields are migrated in place so previous data is preserved.
+
+## Open-web exploration
 
 - New **`explore`** command: paste a seed URL; no `--license` or `--rights-evidence-url` required for read-only discovery.
 - Optional **`--cross-host`**: follow ordinary public HTTPS links to other sites within request, depth, and frontier budgets.
@@ -29,7 +36,8 @@ If activation is blocked, first run `Set-ExecutionPolicy -ExecutionPolicy Remote
 The following URL is the user's example. The page is **not treated as licensed neural-training material**:
 
 ```powershell
-python -m evolve explore --seed-url "https://www.worldometers.info/languages/english-alphabet/" --focus school --limit 8 --cross-host
+python -m evolve explore --seed-url "https://www.worldometers.info/languages/english-alphabet/" --limit 8 --cross-host
+python -m evolve concepts --limit 20
 python -m evolve status
 python -m evolve discover --limit 8
 ```
@@ -56,7 +64,7 @@ Stop daemon using **Ctrl+C**. No GPU is necessary for crawling. Run `python -m e
 
 ## Learning limits and realistic goals
 
-- `explore` extracts lexical candidate concepts and records observations. It **does not** yet independently explain the word `school`, formulate good web searches, or verify broad factual claims.
+- `explore` now ranks **page-grounded** lexical candidates using observed headings, title and word counts. It **does not** yet truly understand these topics, independently explain them, or verify broad factual claims.
 - The tiny Transformer does not become intelligent merely because the crawler discovers many pages. Its knowledge depends on usable data, training objectives, feedback, evaluation, and compute.
 - Public content is not necessarily permitted for copying or model training; the permissibility depends on content, jurisdiction, and relevant terms. The program does not claim to make legal determinations. This version merely removes training-license checks **from the act of observing public HTML**.
 - For later image/audio/video/3D and social media: use dedicated opt-in/authorized connectors, scan files, minimize personal data, and run decoders in sandboxed workers.
@@ -85,3 +93,13 @@ Tests use local HTML fixtures and have **no external network dependency**. Live 
 - `evolve/training.py`: small PyTorch model and candidate evaluation.
 - `evolve/lab.py`: independently checked arithmetic problems.
 - `tests/test_open_exploration.py`: research-only and cross-host tests.
+
+## Content-grounded learning queue
+
+For an alphabet tutorial, the system will prioritize terms actually seen in that tutorial, such as `alphabet`, `letters` and `vowels`, rather than inventing an unrelated operator-supplied subject. Discovered topics are ranked heuristically, stored with their page source and processed under queue limits. The `concepts` command shows their current status. This is a bootstrap toward intelligent self-directed research, not a demonstrated autonomous reasoning agent.
+
+To test locally on Windows PowerShell:
+
+```powershell
+python -m unittest discover -s tests -v
+```
