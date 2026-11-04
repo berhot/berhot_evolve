@@ -78,6 +78,14 @@ def main(argv=None):
     char_predict.add_argument("--top-k", type=int, default=30)
     char_predict.add_argument("--greedy", action="store_true")
     char_predict.add_argument("--accepted", action="store_true")
+    char_compare = sub.add_parser("char-compare", help="Compare two SHA-verified Unicode checkpoints using identical frozen windows and decoding seeds")
+    char_compare.add_argument("--reference-sha256", required=True)
+    char_compare.add_argument("--prompt", default="Energy is")
+    char_compare.add_argument("--new-chars", type=int, default=100)
+    char_compare.add_argument("--temperature", type=float, default=0.85)
+    char_compare.add_argument("--top-k", type=int, default=30)
+    char_compare.add_argument("--seed", type=int, default=42)
+    char_compare.add_argument("--accepted", action="store_true")
     web_lab = sub.add_parser("web-lab", help="One-shot frozen web corpus to trained neural checkpoint + heldout evaluation")
     web_lab.add_argument("--steps", type=int, default=60)
     web_lab.add_argument("--seed", type=int, default=31415)
@@ -354,6 +362,13 @@ def main(argv=None):
                     embedding_dim=args.embedding_dim,
                     layers=args.layers, heads=args.heads,
                     vocab_limit=args.vocab_limit)
+            elif args.command == "char-compare":
+                from .char_compare import compare_char_checkpoints
+                result = compare_char_checkpoints(
+                    store, args.reference_sha256, prompt=args.prompt,
+                    new_chars=args.new_chars, temperature=args.temperature,
+                    top_k=args.top_k, seed=args.seed,
+                    candidate=not args.accepted)
             elif args.command == "char-evaluate":
                 from .char_lab import evaluate_char_lab
                 result = evaluate_char_lab(store, candidate=not args.accepted)
