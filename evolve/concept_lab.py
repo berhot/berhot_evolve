@@ -47,7 +47,7 @@ def _inventory(store, max_concepts=8):
         "SELECT v.question_id, v.concept, v.answer, v.evidence_json, "
         "v.verification_method, v.training_eligible, "
         "q.question AS source_question, d.text AS document_text, "
-        "d.topic, d.license, d.modality, d.source_id "
+        "d.topic, d.license, d.modality, d.source_id, d.split "
         "FROM verified_answers v "
         "JOIN research_questions q ON q.id = v.question_id "
         "JOIN documents d ON d.source_id = ('verified-definition:' || v.question_id) "
@@ -55,7 +55,8 @@ def _inventory(store, max_concepts=8):
         "AND v.verification_method = 'two_source_definition_overlap_v1' "
         "AND d.topic = 'verified:definition' "
         "AND d.license = 'SELF-GENERATED-VERIFIED' "
-        "AND d.modality = 'text' ORDER BY v.question_id ASC"
+        "AND d.modality = 'text' AND d.split = 'train' "
+        "ORDER BY v.question_id ASC"
     )
     items = []
     seen = set()
@@ -108,7 +109,7 @@ def concept_inventory(store, max_concepts=8):
         "eligible_concepts": len(selected),
         "required_concepts": 2,
         "concepts": [c["concept"] for c in selected],
-        "source": "corroborated_licensed_verified_definition_documents_only",
+        "source": "corroborated_licensed_verified_definition_train_split_only",
         "note": ("Concepts shown here passed two-publisher, reusable-rights and "
                  "exact training-document checks. No web pages are fetched."),
     }
@@ -442,7 +443,7 @@ def train_concept_lab(store, settings, steps=300, seed=31415, max_concepts=8,
 
     report = {
         "status": "trained", "experiment": FORMAT,
-        "source": "verified_training_eligible_definition_records_only",
+        "source": "verified_training_eligible_definition_train_split_only",
         "concepts": [c["concept"] for c in items],
         "concept_count": len(items), "training_prompt_templates": list(TRAIN_TEMPLATES),
         "validation_prompt_template": VALIDATION_TEMPLATE,
