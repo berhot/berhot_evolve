@@ -126,3 +126,64 @@ def research_health(store, settings, now=None):
             "reusable training rights."
         ),
     }
+
+
+def research_plan(store, settings, concept):
+    """Offline exact-concept source plan, NOT a rights or evidence certification."""
+    import re
+    from .research import candidate_urls, _publisher_hint
+    from .web_discovery import WebSourceError
+
+    concept = str(concept).strip().casefold()
+    if not re.fullmatch(r"[a-z]{3,28}(?: [a-z]{3,28})?", concept):
+        raise ValueError("Concept must be one or two simple English words (3..28 characters each)")
+    question = store.db.execute(
+        "SELECT id,question,source_url,attempts,last_attempt_at "
+        "FROM research_questions WHERE status='open' AND LOWER(concept)=? "
+        "AND question LIKE 'What is %?' ORDER BY attempts,id LIMIT 1",
+        (concept,)
+    ).fetchone()
+    if question is None:
+        return {
+            "status": "not_found", "concept": concept,
+            "reason": "No open definition question for that exact concept",
+        }
+
+    profile = store.get("web_source_profile", {}) or {}
+    urls = candidate_urls(store, concept, question["source_url"],
+                          cross_host=bool(profile.get("cross_host", False)))
+    cap = max(2, min(int(settings.get("research", {}).get(
+        "max_pages_per_question", 4)), 8))
+    observed = {
+        row[0] for row in store.db.execute(
+            "SELECT url FROM page_observations")
+    }
+    sources = [{
+        "url": url,
+        "publisher_group": _publisher_hint(urlsplit(url).hostname),
+        "previously_observed": url in observed,
+        "within_request_window": i < cap,
+        "training_rights": "unknown_unless_page_checked",
+    } for i, url in enumerate(urls)]
+
+    groups = {r["publisher_group"] for r in sources
+              if r["within_request_window"]}
+    return {
+        "status": "planned", "concept": concept,
+        "question_id": question["id"],
+        "question": question["question"],
+        "max_pages_per_question": cap,
+        "candidate_urls_total": len(sources),
+        "candidate_groups_in_fetch_window": len(groups),
+        "has_independent_candidate_publishers": len(groups) >= 2,
+        "candidate_sources": sources,
+        "next_action": (
+            f"Run 'python3 -m evolve research --concept {concept} --limit 1' "
+            "only when research-health shows remaining quota and retry readiness."
+        ),
+        "warning": (
+            "Candidate publisher diversity is NOT corroboration. These source "
+            "URLs have not been fetched by this command and may lack matching "
+            "definitions or verified CC0/public-domain training rights."
+        ),
+    }
