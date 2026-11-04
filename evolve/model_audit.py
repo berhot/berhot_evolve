@@ -42,9 +42,11 @@ def _checkpoint(record, root):
         result["promoted"] = bool(record["promoted"])
     if "accepted" in record:
         result["accepted_by_validation"] = bool(record["accepted"])
+    elif "accepted_by_validation" in record:
+        result["accepted_by_validation"] = bool(record["accepted_by_validation"])
     else:
         result["accepted_by_validation"] = None
-        result["acceptance_note"] = "Not recorded under the accepted key"
+        result["acceptance_note"] = "No acceptance decision field recorded"
     return result
 
 
@@ -110,6 +112,16 @@ def audit_model_and_ownership(store, settings=None):
                  "validation_byte_loss": float(latest["val_loss"])}
                 if latest else {"status": "none"}),
             "specialized_checkpoint_records": specialized,
+            "unicode_char_lab_checkpoint": _checkpoint(
+                store.get("char_lab_latest_candidate"), store.root),
+            "unicode_char_lab_run": ({
+                "dataset_sha256": store.get("char_lab_latest_candidate")["dataset_sha256"],
+                "tokenizer_sha256": store.get("char_lab_latest_candidate")["tokenizer_sha256"],
+                "total_training_steps": store.get("char_lab_latest_candidate")["total_training_steps"],
+                "resumed_from_sha256": store.get("char_lab_latest_candidate")["resumed_from_sha256"],
+                "validation_char_loss_after": store.get("char_lab_latest_candidate")["validation_char_loss_after"],
+                "diagnostic_source_leakage": store.get("char_lab_latest_candidate")["diagnostic_source_leakage"],
+            } if store.get("char_lab_latest_candidate") else None),
             "web_lab_checkpoint": _checkpoint(
                 store.get("web_lab_latest_candidate"), store.root),
             "web_lab_run": ({
