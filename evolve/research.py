@@ -90,11 +90,25 @@ def candidate_urls(store, concept, source_url, cross_host=False):
             seen.add(url)
             urls.append(url)
     add(source_url)
-    for item in store.concept_sources(concept):
-        add(item["url"])
+    candidates = [item["url"] for item in store.concept_sources(concept)]
+    candidates += store.related_frontier_urls(concept)
     if cross_host:
         wiki_title = quote(concept.replace(" ", "_").title(), safe="_")
-        add("https://en.wikipedia.org/wiki/" + wiki_title)
+        candidates.append("https://en.wikipedia.org/wiki/" + wiki_title)
+    # Put distinct publisher-domain candidates ahead of repeated same-site links.
+    seed_publisher = _publisher_hint(urlsplit(urls[0]).hostname)
+    distinct, same = [], []
+    for candidate in candidates:
+        try:
+            normalized = canonical_url(candidate)
+        except WebSourceError:
+            continue
+        if _publisher_hint(urlsplit(normalized).hostname) != seed_publisher:
+            distinct.append(normalized)
+        else:
+            same.append(normalized)
+    for candidate in distinct + same:
+        add(candidate)
     return urls
 
 
@@ -110,13 +124,14 @@ def research_questions(store, settings, limit=None, fetcher=None, sleep_fn=time.
         raise ValueError("Question budget must be between 1 and 50")
     max_pages = max(2, min(int(cfg.get("max_pages_per_question", 4)), 8))
     cooldown = max(0, int(cfg.get("retry_cooldown_seconds", 3600)))
-    selected = store.next_open_questions(limit, cooldown_seconds=cooldown)
+    selected = store.next_open_questions(limit, cooldown_seconds=cooldown, supported_only=True)
     profile = store.get("web_source_profile", {})
     cross_host = bool(profile.get("cross_host", False))
     report = {"attempted_questions": 0, "verified_answers": 0,
               "training_examples_created": 0, "unresolved_questions": 0,
-              "unsupported_questions": 0, "source_requests": 0,
-              "source_errors": [], "answers": []}
+              "unsupported_questions": store.unsupported_question_count(),
+              "source_requests": 0, "source_errors": [], "answers": [],
+              "question_outcomes": [], "deferred_unsupported_questions": store.unsupported_question_count()}
     cache = {}
     used_key = "web_requests_" + time.strftime("%Y-%m-%d", time.gmtime())
     daily = int(settings.get("daily_request_budget", 60))
@@ -126,7 +141,7 @@ def research_questions(store, settings, limit=None, fetcher=None, sleep_fn=time.
         report["attempted_questions"] += 1
         match = re.fullmatch(r"What is (.+)\?", question["question"], re.I)
         if not match:
-            report["unsupported_questions"] += 1
+            # Defensive check: supported_only should already exclude this.
             continue
         concept = match.group(1).casefold()
         candidates = []
@@ -174,6 +189,17 @@ def research_questions(store, settings, limit=None, fetcher=None, sleep_fn=time.
                 break
         if not matched:
             report["unresolved_questions"] += 1
+            count = len({item["publisher"] for item in candidates})
+            reason = ("no_definition_found" if not candidates else
+                      "single_publisher_only" if count < 2 else
+                      "definitions_do_not_agree")
+            if int(store.get(used_key, 0)) >= daily:
+                reason = "daily_budget_exhausted"
+            if len(report["question_outcomes"]) < 20:
+                report["question_outcomes"].append({
+                    "question_id": question_id, "concept": concept, "outcome": reason,
+                    "definitions_found": len(candidates), "independent_publishers": count,
+                    "sources_considered": len(sources[:max_pages])})
             continue
         first, second = matched
         licensed = next((x for x in matched if x["license"] in ("CC0-1.0", "PUBLIC-DOMAIN")), None)
@@ -203,5 +229,10 @@ def research_questions(store, settings, limit=None, fetcher=None, sleep_fn=time.
                 "source_urls": [item["url"] for item in matched],
                 "training_eligible": bool(licensed),
             })
+            if len(report["question_outcomes"]) < 20:
+                report["question_outcomes"].append({
+                    "question_id": question_id, "concept": concept,
+                    "outcome": "source_corroborated",
+                    "training_eligible": bool(licensed)})
     report["open_questions"] = store.open_questions_count()
     return report
