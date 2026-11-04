@@ -1,3 +1,39 @@
+# BERHOT EVOLVE v1.1 — Neural magnitude ablation
+
+## Why this experiment?
+
+On the Mac, v0.9's explicit-addition model scored 10/10 unseen pairs,
+while v1.0's generic categorical digit-pair classifier memorized 35/35 training
+pairs but scored 0/10 on validation and 0/10 on the test set.
+
+v1.1 tests a middle ground: a generic MLP that receives the **numeric
+magnitudes** of both operands. No summation is hard-coded in its forward pass.
+Normalized ordinal inputs, the continuous regression objective, and
+commutative pair canonicalization are strong priors—not autonomous reasoning.
+
+### Run on macOS (zsh)
+
+```bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+python3 -m evolve magnitude-lab --seed 31415 --steps 800
+python3 -m evolve magnitude-predict --a 9 --b 8
+python3 -m evolve magnitude-study --seeds 31415 42 1001 --steps 800
+python3 -m unittest discover -s tests -v
+```
+
+Each seed uses 35 training, 10 validation and 10 unseen test unordered
+digit pairs. Matching-seed v0.9 and v1.0 baselines are compared read-only.
+The study reports **every** seed, not just the best. The last study seed
+becomes the latest magnitude candidate; run `magnitude-lab --seed 31415`
+again to restore that seed for subsequent prediction.
+
+Models save separately to `storage/models/magnitude_lab/` and never overwrite
+prior checkpoints or research observations. These supervised finite-digit
+tests do not establish general arithmetic, model self-improvement or
+real-world web knowledge.
+
+## Previous version — v1.0
 # BERHOT EVOLVE v1.0 — Operator-Blind Neural Arithmetic Comparison
 
 ## What the previous experiment really demonstrated
