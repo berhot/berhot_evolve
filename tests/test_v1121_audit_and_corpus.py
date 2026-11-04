@@ -54,7 +54,7 @@ class ReportingCorrections(unittest.TestCase):
             corpus_seed(store, ["https://example.org/"])
             store.add_concept_task(
                 "volcano", "https://example.org/",
-                max_concepts=20, priority=1.0, source_title="volcano")
+                max_total=20, priority=1.0, source_title="volcano")
             self.assertEqual(store.pending_concepts(), 1)
             first = discover_web(
                 store, cfg, limit=3, review_questions=False,
