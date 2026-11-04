@@ -243,7 +243,7 @@ def discover_web(store,settings,limit=None,fetcher=None,sleep_fn=time.sleep):
     max_links=int(settings.get('web',{}).get('max_links_per_page',5))
     max_concepts=int(settings.get('web',{}).get('max_concepts_total',60))
     max_new=int(settings.get('web',{}).get('new_concepts_per_page',3))
-    report={'status':'completed','attempted':0,'saved':0,'research_observed':0,'errors':0,'links_added':0,'concepts_added':0}
+    report={'status':'completed','attempted':0,'saved':0,'research_observed':0,'errors':0,'error_details':[], 'links_added':0,'concepts_added':0}
     for _ in range(cap):
         if used>=daily:
             report['status']='daily_budget_exhausted';break
@@ -297,9 +297,12 @@ def discover_web(store,settings,limit=None,fetcher=None,sleep_fn=time.sleep):
                     report['concepts_added']+=1
             store.mark_web_url(url,'done')
         except Exception as exc:
-            store.mark_web_url(url,'error',str(exc))
+            reason = str(exc)[:300] or type(exc).__name__
+            store.mark_web_url(url,'error',reason)
             report['errors']+=1
-            store.log('web_source_error','error',{'url':url,'error':str(exc)[:250]})
+            if len(report['error_details']) < 5:
+                report['error_details'].append({'url':url,'reason':reason})
+            store.log('web_source_error','error',{'url':url,'error':reason})
         if report['attempted']<cap and settings.get('crawl_delay_seconds',0)>0:
             sleep_fn(float(settings['crawl_delay_seconds']))
     # Bounded concept-knowledge loop; this is lexical bootstrap, not true semantic understanding.
