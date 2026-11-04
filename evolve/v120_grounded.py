@@ -108,10 +108,10 @@ def title_question(topic_title):
     if not isinstance(topic_title, str):
         return None
     match = re.match(
-        r"^\\s*(what\\s+(?:is|are)\\s+"
-        r"(?:(?:a|an|the)\\s+)?"
+        r"^\s*(what\s+(?:is|are)\s+"
+        r"(?:(?:a|an|the)\s+)?"
         r"[A-Za-z][A-Za-z-]{2,32}"
-        r"(?:\\s+[A-Za-z][A-Za-z-]{2,32})?\\?)",
+        r"(?:\s+[A-Za-z][A-Za-z-]{2,32})?\?)",
         topic_title.strip(), flags=re.I)
     if not match:
         return None
@@ -134,16 +134,16 @@ def title_evidence(text, topic):
     Does not paraphrase, cite unrelated sentences, or add content to the
     source. A title alone is insufficient for a training example.
     """
-    term = re.compile(r"\\b(?:" +
+    term = re.compile(r"\b(?:" +
                       "|".join(re.escape(x) for x in _term_forms(topic)) +
-                      r")\\b", re.I)
+                      r")\b", re.I)
     # Avoid selecting incidental narrative such as 'Our Sun is roughly midway'.
     pattern = re.compile(
-        r"\\b(?:is|are)\\s+(?:an?|the|one\\s+of)\\b|"
-        r"\\b(?:is|are)\\s+(?:\\w+\\s+){0,3}"
+        r"\b(?:is|are)\s+(?:an?|the|one\s+of)\b|"
+        r"\b(?:is|are)\s+(?:\w+\s+){0,3}"
         r"(?:bodies|areas|regions|types|systems|places|"
-        r"formations|structures|objects|habitats|masses)\\s+of\\b|"
-        r"\\b(?:means|refers\\s+to|defined\\s+as|describes)\\b",
+        r"formations|structures|objects|habitats|masses)\s+of\b|"
+        r"\b(?:means|refers\s+to|defined\s+as|describes)\b",
         re.I)
     for sentence in _sentences(text)[:24]:
         candidate = " ".join(sentence.split()).strip()
@@ -198,7 +198,6 @@ def _inventory(store, limit_sources=200, per_source=18):
             sentence = title_evidence(text, heading_topic)
             if sentence is not None:
                 digest = _sha(sentence.casefold().encode("utf-8"))
-                key = (heading_topic, digest)
                 if digest not in seen and not any(
                         f["topic"] == heading_topic and f["url"] == source["url"]
                         for f in facts):
