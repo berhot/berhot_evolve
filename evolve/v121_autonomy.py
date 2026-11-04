@@ -38,7 +38,40 @@ _NON_CONCEPT_TOPICS = {
     "national", "federal", "different", "available", "important",
     "official", "free", "new", "old", "updated", "several",
     "resources", "overview", "related", "about", "information",
+    "wikipedia", "news", "contents", "homepage", "main page",
+    "article index", "index", "directory", "search", "portal",
+    "category", "categories", "navigation", "updates", "blog",
+    "menu", "login", "help", "contact", "support",
 }
+
+def _navigation_source(url):
+    """Exclude source *navigation* pages, not legitimate science concepts.
+
+    A concept such as 'current' from NOAA ocean facts stays eligible;
+    the same word from Wikipedia's Current_events portal does not.
+    No crawler requests, writes or new rights decisions happen here.
+    """
+    from urllib.parse import urlsplit, unquote
+    if not isinstance(url, str):
+        return True
+    parts = urlsplit(url)
+    if parts.scheme != "https" or not parts.hostname:
+        return True
+    path = unquote(parts.path).casefold()
+    if not path or path == "/":
+        return True
+    if parts.hostname.casefold().endswith(".wikipedia.org"):
+        if path in ("/wiki/main_page", "/wiki/contents"):
+            return True
+        if any(path.startswith("/wiki/" + name + ":") for name in (
+            "wikipedia", "portal", "special", "category", "help",
+            "file", "template", "talk",
+        )):
+            return True
+    if path.rstrip("/") in ("/news", "/blog", "/search", "/contact",
+                            "/about", "/help", "/resources"):
+        return True
+    return False
 _SINGULAR_ENDING_S = {
     "gas", "mass", "glass", "grass", "news", "physics",
     "mathematics", "statistics", "series", "species",
@@ -147,7 +180,7 @@ def curiosity_queue(store, limit=8):
                 time.time() < float(previous.get("retry_after_epoch", float("inf")))):
             deferred["retry_cooldown_active"] += 1
             return
-        if not isinstance(url, str) or not url.startswith("https://"):
+        if _navigation_source(url):
             deferred["invalid_or_unsupported_topic"] += 1
             return
         pending.append({
