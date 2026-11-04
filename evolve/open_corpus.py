@@ -2,12 +2,12 @@
 
 Collection is independent of neural-training admission: any publicly accessible
 HTML page the existing safe fetcher can retrieve may be archived without a
-CC0/PD declaration. We retain URL, original HTML digest, cleaned-text digest,
+CC0/PD declaration. We retain URL, decoded HTML snapshot digest, cleaned-text digest,
 title, declared rights or UNKNOWN, and no-AI signal as observable metadata.
 The archive is NOT a training-data approval, fact verifier, or trained model.
 
 No bypassing robots.txt, authentication, paywalls, rate limits, or access blocks.
-Exact normalized-text and raw-content hashing; NOT semantic deduplication.
+Exact normalized-text and decoded-HTML-snapshot hashing; NOT semantic deduplication.
 """
 from datetime import datetime, timezone
 from pathlib import Path
@@ -76,6 +76,8 @@ def archive_page(store, url, html, extracted_text, title="", noai=False,
     text = normalize_web_text(extracted_text)
     if not text:
         return {"status": "skipped", "reason": "Empty extracted text"}
+    # fetch_page returns decoded HTML Unicode; this preserves that exact
+    # decoded snapshot, NOT the original HTTP response byte sequence.
     original_bytes = html.encode("utf-8")
     clean_bytes = text.encode("utf-8")
     original_sha = _sha(original_bytes)
@@ -161,7 +163,7 @@ def corpus_status(store):
         "training_approved_from_corpus": 0,
         "neural_training_from_corpus": "NOT_IMPLEMENTED",
         "collection_implementation": "BERHOT-owned Python module using stdlib only",
-        "deduplication": "SHA256 exact post-normalization plus raw HTML digest; no semantic dedup",
+        "deduplication": "SHA256 exact post-normalization plus decoded HTML snapshot digest; no semantic dedup",
         "warning": (
             "Collected text is NOT proof of legal permission to train, factual "
             "correctness, or neural learning. Unknown rights and noai are kept "
