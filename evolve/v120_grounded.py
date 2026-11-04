@@ -95,7 +95,7 @@ def extract_definition(sentence):
     if match["verb"].casefold() in ("is", "are") and not defining_predicate:
         return None
     # Don't turn arbitrary text/navigation into supposed scientific claims.
-    if len(set(re.findall(r"[a-z]{3,}", predicate.casefold()))) < 2:
+    if len(set(re.findall(r"[a-z]{3,}", predicate.casefold()))) < 1:
         return None
     return topic
 
