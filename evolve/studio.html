@@ -69,6 +69,7 @@ footer{color:var(--muted);font-size:11px;text-align:center;margin-top:24px}
 <div class="stack">
 <section class="panel"><div class="panelhead"><div><div class="eyebrow">Talk to EVOLVE</div><h2>Ask the actual system</h2></div><span class="tag good">Local / no API</span></div>
 <label for="chatmode" style="margin-top:0">Select how it answers</label><select id="chatmode"><option value="auto">Curiosity · Check memory, research missing questions, cite sources</option><option value="sources">Approved local sources only (no network)</option><option value="byte_bpe">Neural · Byte-BPE — raw generated text</option><option value="char">Neural · Characters — raw generated text</option><option value="qa">Neural · Supervised QA (if trained)</option></select>
+<div class="mline"><span class="muted">Shared research requests (UTC day)</span><strong id="research-budget">Checking...</strong></div>
 <div class="chatlog" id="chatlog"><div class="bubble"><div class="speaker">EVOLVE</div>Ask me about moon, volcanoes, or a new topic. Curiosity mode first checks my approved books, then researches public sources when missing. Every answer is a quoted passage, not yet a fluent neural explanation.</div></div>
 <label for="question">Message</label><div class="row"><input id="question" maxlength="280" placeholder="What causes a volcano?"><button id="send" class="btn primary">Send ↗</button></div><div id="chat-notice" class="notice"></div>
 <p class="small">Curiosity mode can read and cache an unfamiliar public article under your existing website access limits. Research memory is not neural learning. Self-study generates labeled reading examples only from previously rights-approved texts.</p></section>
@@ -87,6 +88,9 @@ footer{color:var(--muted);font-size:11px;text-align:center;margin-top:24px}
 const token=document.querySelector('meta[name="evolve-token"]').content;
 const $=id=>document.getElementById(id);
 let latest=null;let pendingResearch=null;
+const STUDIO_API_VERSION=2;
+const restartMessage="Old Studio backend detected. Close its Terminal with Ctrl+C, then restart: python3 -m evolve studio --port 8787 --interval 60. Refresh this page.";
+function compatible(s){return s?.studio_api_version===STUDIO_API_VERSION&&Array.isArray(s.supported_chat_modes)&&s.supported_chat_modes.includes("auto");}
 const timeFmt=v=>{if(v==null||!Number.isFinite(Number(v)))return "—";v=Math.max(0,Math.round(Number(v)));return v>=3600?Math.floor(v/3600)+"h "+Math.floor(v%3600/60)+"m":v>=60?Math.floor(v/60)+"m "+(v%60)+"s":v+"s"};
 const dateFmt=s=>s?new Date(s).toLocaleString():"—";
 async function api(path,body){
@@ -120,6 +124,15 @@ async function refreshPlan(){
 async function refresh(){
  try{
  const s=await api("/api/status");latest=s;
+ if(!compatible(s)){
+    notify("chat-notice",restartMessage);$("send").disabled=true;
+    text("research-budget","Backend restart required");
+ }else{
+    $("send").disabled=false;
+    const b=s.research_budget||{};
+    text("research-budget",b.limit==null?"Unavailable":b.used+" / "+b.limit+" used · "+b.remaining+" left");
+    notify("chat-notice",b.remaining===0?"Research budget exhausted; resets "+dateFmt(b.reset_at_utc)+" (midnight UTC).": "");
+ }
  text("clock",dateFmt(s.time_utc));text("pages",s.archived_pages);text("eligible",s.rights_eligible_articles);text("hosts",s.rights_eligible_hosts);
  text("families",Object.keys(s.v117_models||{}).length+(s.v118_qa_model?1:0));
  text("lessons",(s.human_reviewed_qa_examples||0)+(s.source_derived_lessons||0));text("manual-lessons",s.human_reviewed_qa_examples||0);text("auto-lessons",s.source_derived_lessons||0);
@@ -171,7 +184,13 @@ function renderAnswer(msg,r){
 async function send(){
  const q=$("question").value.trim();if(!q)return;const mode=$("chatmode").value;$("question").value="";
  bubble("YOU",q,true);const msg=bubble("EVOLVE / "+mode,"Checking local knowledge...");
- try{const r=await api("/api/chat",{question:q,mode});renderAnswer(msg,r);
+ try{
+   if(mode==="auto"&&!compatible(latest)){
+     const status=await api("/api/status");
+     if(!compatible(status))throw Error(restartMessage);
+     latest=status;
+   }
+   const r=await api("/api/chat",{question:q,mode});renderAnswer(msg,r);
   if(r.status==="research_queued"&&r.job_id)pendingResearch={id:r.job_id,q,msg};
  }catch(err){msg.children[1].textContent="Unable to answer: "+err.message}
 }
