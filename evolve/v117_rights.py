@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 import hashlib
+import json
 
 from .web_lab import _within
 
@@ -86,8 +87,9 @@ def review_rights(store, url, license_id, evidence_url, confirmed=False):
             "must still be checked; no publisher no-AI signs may be ignored."
         ),
     }
-    # Persist review evidence before admitting the page; a failed data write
-    # is propagated to caller, not silently disguised as review success.
+    # Update rights, review history and provenance in ONE SQLite transaction.
+    history = store.get("v117_rights_review_history", []) or []
+    history.append(review)
     with store.db:
         cur = store.db.execute(
             "UPDATE web_corpus_sources SET rights_status=?,rights_evidence_url=? "
@@ -96,8 +98,13 @@ def review_rights(store, url, license_id, evidence_url, confirmed=False):
         )
         if cur.rowcount != 1:
             raise ValueError("Source rights record changed during review")
-    history = store.get("v117_rights_review_history", []) or []
-    history.append(review)
-    store.put("v117_rights_review_history", history)
-    store.log("v117_manual_rights_review", "attested", review)
+        store.db.execute(
+            "INSERT INTO kv(key,value) VALUES(?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            ("v117_rights_review_history", json.dumps(history, ensure_ascii=False)))
+        store.db.execute(
+            "INSERT INTO runs(action,status,details,created_at) VALUES(?,?,?,?)",
+            ("v117_manual_rights_review", "attested",
+             json.dumps(review, ensure_ascii=False),
+             review["review_at_utc"]))
     return {"status": "review_recorded", **review}
