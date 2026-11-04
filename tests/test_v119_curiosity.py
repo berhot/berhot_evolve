@@ -77,6 +77,33 @@ class CuriosityTests(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_detected_license_signal_is_not_neural_training_admission(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = Store(root)
+            cfg = copy.deepcopy(load_config())
+            cfg["storage_root"] = root
+            cfg["crawl_delay_seconds"] = 0
+            cfg["daily_request_budget"] = 3
+            def fake(url):
+                return (
+                    "<html><head><title>Gas - Science</title>"
+                    "<link rel='license' href="
+                    "'https://creativecommons.org/publicdomain/zero/1.0/' />"
+                    "</head><body><p>A gas is a state of matter "
+                    "characterized by freely moving particles occupying "
+                    "whatever space is available to them.</p></body></html>"
+                )
+            try:
+                outcome = research(store, cfg, "What is gas?", fetcher=fake,
+                                   sleep_fn=lambda _: None)
+                self.assertEqual(outcome["status"], "researched", outcome)
+                self.assertEqual(outcome["sources"][0]["declared_rights_signal"],
+                                 "CC0-1.0")
+                self.assertFalse(outcome["sources"][0]["training_admitted"])
+                self.assertFalse(outcome["neural_weights_updated"])
+            finally:
+                store.close()
+
     def test_unapproved_content_not_neural_training(self):
         with tempfile.TemporaryDirectory() as root:
             store = Store(root)
