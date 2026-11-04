@@ -1468,3 +1468,32 @@ eligible distinct source hosts. Full guide: [v1.17 language benchmark](docs/LANG
 These are controlled evaluations, not autonomous self-improvement or verified
 factual understanding. Real-site training still requires rights checks and
 independent sources; a single article must not be scored as heldout.
+
+
+## BERHOT EVOLVE v1.18 — Live Learning Studio
+
+The **three-stage integrated laboratory** builds on the actual v1.17 source-host
+checkpoints, without replacing or claiming to improve them automatically:
+
+- **A — Expanded curriculum:** live source/rights inventory, new HTTPS article
+  queue and bounded manual crawl, frozen independent-host training data.
+- **B — Chat and supervised answers:** real locally generated character/BPE
+  continuations, clearly labeled source quotation answers, and a separate
+  training path for human-reviewed, exact-source QA examples.
+- **C — Automatic experiments:** opt-in new-dataset checks, bounded CPU training,
+  live step counts, elapsed time, ETA estimates, loss and separate checkpoint
+  history. The daemon operates only while the local server remains running.
+
+**Launch the browser dashboard:**
+
+```bash
+python3 -m pip install -e '.[train]'
+python3 -m evolve studio --port 8787 --interval 3600
+```
+
+Visit **http://127.0.0.1:8787**. The dashboard runs entirely on the local
+Mac using the existing Python/SQLite project (no OpenAI or third-party chat
+API). Existing model checkpoints and data stay on disk. Raw small-model neural
+text remains incoherent; readable source lookup is not neural reasoning.
+
+[Full setup, controls and limitations](docs/LEARNING_STUDIO_V118.md).
