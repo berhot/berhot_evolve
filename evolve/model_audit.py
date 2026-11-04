@@ -119,6 +119,10 @@ def audit_model_and_ownership(store, settings=None):
                 "tokenizer_sha256": store.get("char_lab_latest_candidate")["tokenizer_sha256"],
                 "total_training_steps": store.get("char_lab_latest_candidate")["total_training_steps"],
                 "resumed_from_sha256": store.get("char_lab_latest_candidate")["resumed_from_sha256"],
+                "continuation_mode": store.get("char_lab_latest_candidate").get(
+                    "continuation_mode", "legacy_unrecorded"),
+                "exact_cpu_state_restored": store.get("char_lab_latest_candidate").get(
+                    "exact_cpu_state_restored", False),
                 "validation_char_loss_after": store.get("char_lab_latest_candidate")["validation_char_loss_after"],
                 "diagnostic_source_leakage": store.get("char_lab_latest_candidate")["diagnostic_source_leakage"],
             } if store.get("char_lab_latest_candidate") else None),

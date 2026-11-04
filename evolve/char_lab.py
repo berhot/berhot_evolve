@@ -242,6 +242,7 @@ def train_char_lab(store, settings, steps=400, seed=31415, device="cpu",
     torch.manual_seed(int(seed))
     rng = random.Random(int(seed))
     previous = None
+    continuation = "new_model"
     if resume:
         previous = _load_char_model(store, candidate=False)
         if previous is None:
@@ -256,6 +257,11 @@ def train_char_lab(store, settings, steps=400, seed=31415, device="cpu",
             }
         old_checkpoint_sha = old_record["sha256"]
         model = model.to(chosen)
+        # Older v1.15 artifacts saved ONLY weights. They can continue, but
+        # they cannot reconstruct AdamW moments or the consumed batch sequence.
+        continuation = (
+            "stateful_optimizer_rng" if "optimizer_state" in old_meta
+            and "sampler_rng_state" in old_meta else "legacy_weights_only")
     else:
         model = build_model(cfg).to(chosen)
         old_checkpoint_sha = None
@@ -264,9 +270,23 @@ def train_char_lab(store, settings, steps=400, seed=31415, device="cpu",
     val_before = _eval(model, ids["val"], cfg, chosen)
     base_val = _unigram(ids["train"], ids["val"], cfg)
     base_test = _unigram(ids["train"], ids["test"], cfg, seed=398)
-    optimizer = torch.optim.AdamW(
-        model.parameters(), lr=float(
-            settings["train"].get("learning_rate", 0.0007)))
+    learning_rate = float(settings["train"].get("learning_rate", 0.0007))
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    # STATEFUL continuation: do not reset AdamW momentum/variance, the
+    # sampler position, or the torch RNG. Without them, "800 steps" only
+    # describes a weight warm-start, not an exact training continuation.
+    if continuation == "stateful_optimizer_rng":
+        if (float(old_meta.get("optimizer_learning_rate", -1)) != learning_rate
+                or int(old_meta.get("train_batch_size", -1)) != 8):
+            return {
+                "status": "skipped",
+                "reason": "resume_optimizer_hyperparameters_mismatch",
+            }
+        optimizer.load_state_dict(old_meta["optimizer_state"])
+        rng.setstate(old_meta["sampler_rng_state"])
+        torch_rng = old_meta.get("torch_cpu_rng_state")
+        if torch_rng is not None:
+            torch.set_rng_state(torch_rng.cpu())
     from .training import random_batch
     actual = 0
     start = time.monotonic()
@@ -306,6 +326,14 @@ def train_char_lab(store, settings, steps=400, seed=31415, device="cpu",
         "total_training_steps": actual + (
             int(previous[2]["total_training_steps"]) if previous else 0),
         "seed": int(seed),
+        # All fields are Python primitives/tuples or tensors loadable with
+        # torch.load(..., weights_only=True); no arbitrary pickle classes.
+        "optimizer_state": optimizer.state_dict(),
+        "sampler_rng_state": rng.getstate(),
+        "torch_cpu_rng_state": torch.get_rng_state(),
+        "optimizer_learning_rate": learning_rate,
+        "train_batch_size": 8,
+        "continuation_mode": continuation,
     }, checkpoint)
     sha = sha256_file(checkpoint)
     # Withheld test is scored AFTER the choice to accept or reject.
@@ -330,6 +358,21 @@ def train_char_lab(store, settings, steps=400, seed=31415, device="cpu",
         "total_training_steps": actual + (
             int(previous[2]["total_training_steps"]) if previous else 0),
         "resumed_from_sha256": old_checkpoint_sha,
+        "continuation_mode": continuation,
+        "exact_cpu_state_restored": bool(
+            continuation == "stateful_optimizer_rng" and chosen == "cpu"),
+        "optimizer_state_saved": True,
+        "batch_sampler_rng_state_saved": True,
+        "continuation_note": (
+            "This release stores AdamW optimizer and Python batch-sampler "
+            "state. Legacy v1.15 checkpoints lack both and can only resume "
+            "weights; split-vs-continuous equivalence is verified on CPU."
+            if continuation == "legacy_weights_only" else
+            "Optimizer and sampler states were restored for CPU-compatible "
+            "continuation; a different hardware/backend can vary."
+            if continuation == "stateful_optimizer_rng" else
+            "A new model initialized from the requested seed."
+        ),
         "accepted_by_validation": accepted,
         "split_method": manifest["split_method"],
         "diagnostic_source_leakage": bool(
