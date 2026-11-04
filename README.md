@@ -1586,3 +1586,16 @@ hosts are missing usable examples**, or add
 This version also recognizes publisher question titles plus exact
 on-topic definitional sentences, with source/rights checks unchanged.
 See [the QA corpus gap guide](docs/QA_GAPS_V1201.md).
+
+
+## v1.21 — one-command autonomous curiosity, source QA and neural ranker evaluation
+
+The bounded agent chooses real source-observed terms, asks its own short questions, optionally researches permitted HTTPS pages, creates immutable exact-source QA lessons, quizzes citation integrity, and attempts the PyTorch evidence-ranking model **only when strict independent-source train/validation/test data are ready**. No external LLM and no automatic rights approval.
+
+```bash
+python3 -m evolve v121-plan
+python3 -m evolve v121-cycle --network --max-topics 6 --max-requests 6 --steps 120
+python3 -m evolve v121-history
+```
+
+[Full autonomous curiosity guide](docs/AUTONOMOUS_CURIOSITY_V121.md). This does **not** demonstrate general understanding or fluent generated answers. Missing held-out NOAA/test data will still block ranker training.

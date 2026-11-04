@@ -117,7 +117,7 @@ class StudioCompatibilityTests(unittest.TestCase):
             try:
                 status = controller.status()
                 self.assertEqual(status["studio_api_version"], 3)
-                self.assertEqual(status["studio_backend_version"], "1.20.0")
+                self.assertEqual(status["studio_backend_version"], "1.21.0")
                 self.assertIn("auto", status["supported_chat_modes"])
                 self.assertEqual(status["research_budget"]["remaining"], 0)
                 answer = controller.talk("sun", "auto")

@@ -148,6 +148,20 @@ def audit_model_and_ownership(store, settings=None):
                 "validation_char_loss_after": store.get("char_lab_latest_candidate")["validation_char_loss_after"],
                 "diagnostic_source_leakage": store.get("char_lab_latest_candidate")["diagnostic_source_leakage"],
             } if store.get("char_lab_latest_candidate") else None),
+            "v121_autonomous_curiosity": {
+                "recent_cycles": len(store.get("v121_cycle_history", []) or []),
+                "latest_cycle": {
+                    "status": (store.get("v121_last_cycle") or {}).get("status"),
+                    "curiosity_question_count": (store.get("v121_last_cycle") or {}).get("curiosity_question_count"),
+                    "network_opt_in": (store.get("v121_last_cycle") or {}).get("network_opt_in"),
+                    "neural_training_status": ((store.get("v121_last_cycle") or {}).get("neural_training") or {}).get("status"),
+                    "new_neural_weights_trained": (store.get("v121_last_cycle") or {}).get("new_neural_weights_trained"),
+                    "understanding_proven": False,
+                },
+                "quiz_bank": store.get("v121_quiz_bank_latest"),
+                "autonomous_training_rights_approval": False,
+                "local_source_quiz_is_neural_generalization": False,
+            },
             "v120_grounded_question_answering": {
                 "ranker_checkpoint": _checkpoint(
                     store.get("v120_ranker_latest"), store.root),
