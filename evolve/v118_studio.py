@@ -8,6 +8,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from threading import RLock, Thread, Event
 import html
+import errno
 import json
 import math
 import hashlib
@@ -505,7 +506,7 @@ def serve(settings, port=8787, interval=3600):
         server = ThreadingHTTPServer((HOST, port), _handler(control, token, origin))
     except OSError as exc:
         control.shutdown()
-        if getattr(exc, "errno", None) == 48:
+        if getattr(exc, "errno", None) == errno.EADDRINUSE:
             raise RuntimeError(
                 f"Port {port} is already used by another process. "
                 f"Stop the previous BERHOT Studio with Ctrl+C, or inspect "
