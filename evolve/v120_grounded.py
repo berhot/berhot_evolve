@@ -42,7 +42,7 @@ _DEFINE = re.compile(
     r"(?P<topic>[A-Za-z][A-Za-z-]{2,32}"
     r"(?:\s+[A-Za-z][A-Za-z-]{2,32})?)"
     r"\s+(?P<verb>is|are|means|refers\s+to)\s+"
-    r"(?P<predicate>[^!?;]{25,250})[.!?]?$",
+    r"(?P<predicate>[^!?;]{6,250})[.!?]?$",
     flags=re.I,
 )
 _QUESTION = re.compile(
@@ -75,7 +75,7 @@ def topic_from_question(question):
 def extract_definition(sentence):
     """Explicit sentence-level, *heuristic* definitional claim, not proven fact."""
     s = " ".join(sentence.split()).strip()
-    if not 48 <= len(s) <= 320 or not 10 <= len(s.split()) <= 62:
+    if not 18 <= len(s) <= 320 or not 4 <= len(s.split()) <= 62:
         return None
     lower = s.casefold()
     if lower.startswith(_BAD_START) or any(bad in lower for bad in _BAD_BODY):
@@ -95,7 +95,7 @@ def extract_definition(sentence):
     if match["verb"].casefold() in ("is", "are") and not defining_predicate:
         return None
     # Don't turn arbitrary text/navigation into supposed scientific claims.
-    if len(set(re.findall(r"[a-z]{3,}", predicate.casefold()))) < 5:
+    if len(set(re.findall(r"[a-z]{3,}", predicate.casefold()))) < 2:
         return None
     return topic
 
