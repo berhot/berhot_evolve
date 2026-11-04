@@ -76,6 +76,7 @@ class DefinitionUnitTests(unittest.TestCase):
         self.assertIsNone(topic_from_question("Why does the Sun shine?"))
         self.assertIsNone(topic_from_question("What happens when a star dies?"))
         self.assertEqual(extract_definition(SCIENCE[1][2][0]), "sun")
+        self.assertEqual(extract_definition("The Sun is a star."), "sun")
         self.assertIsNone(extract_definition(
             "Our Sun is roughly midway through its main sequence stage."))
         self.assertIsNone(extract_definition(
