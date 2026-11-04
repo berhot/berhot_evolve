@@ -434,6 +434,28 @@ def _rank_eval(model, pairs, torch):
             "n": len(pairs)}
 
 
+def lexical_pair_benchmark(pairs):
+    """Evaluate the exact same held-out pairs as the PyTorch ranker.
+
+    The lexical baseline has privileged, mechanically extracted topic
+    metadata. These different-topic negatives are often very easy; a high
+    score is NOT an external QA or semantic understanding benchmark.
+    """
+    if not pairs:
+        return {"pair_accuracy": None, "n": 0, "ties": 0}
+    def score(features):
+        return (8 * features[0] + 3 * features[1] +
+                3 * features[2] + features[3] +
+                .5 * features[4] + .5 * features[5])
+    differences = [score(a) - score(b) for a, b in pairs]
+    correct = sum(diff > 1e-9 for diff in differences)
+    ties = sum(abs(diff) <= 1e-9 for diff in differences)
+    return {"pair_accuracy": round(correct / len(pairs), 4),
+            "n": len(pairs), "ties": ties,
+            "uses_topic_metadata": True,
+            "answers_generated_by_model": False}
+
+
 def train_ranker(store, settings, steps=120, seed=31415, progress=None):
     """Train a small learned evidence *ranker*, not a text generation model.
 
@@ -480,6 +502,12 @@ def train_ranker(store, settings, steps=120, seed=31415, progress=None):
             break
     val_after = _rank_eval(model, data["val"], torch)
     test_after = _rank_eval(model, data["test"], torch)
+    lexical = {split: lexical_pair_benchmark(data[split])
+               for split in _SPLITS}
+    test_delta = round(
+        test_after["pair_accuracy"] - lexical["test"]["pair_accuracy"], 4)
+    val_delta = round(
+        val_after["pair_accuracy"] - lexical["val"]["pair_accuracy"], 4)
     # Accept only if genuinely improved on *held-out validation* and better
     # than random ranker pair accuracy; never select based on the test score.
     accepted = (
@@ -527,6 +555,21 @@ def train_ranker(store, settings, steps=120, seed=31415, progress=None):
         "actual_training_steps": actual, "accepted_by_validation": accepted,
         "validation_before": val_before, "validation_after": val_after,
         "test_after": test_after,
+        "benchmark": {
+            "name": "same_frozen_source_pairs_neural_vs_topic_lexical",
+            "lexical_train": lexical["train"],
+            "lexical_validation": lexical["val"],
+            "lexical_test": lexical["test"],
+            "neural_validation_pair_accuracy": val_after["pair_accuracy"],
+            "neural_test_pair_accuracy": test_after["pair_accuracy"],
+            "validation_accuracy_delta_vs_lexical": val_delta,
+            "test_accuracy_delta_vs_lexical": test_delta,
+            "outperformed_lexical_on_unseen_test_hosts": test_delta > 0,
+            "selected_model_using_test_results": False,
+            "different_topic_easy_negative_pairs": True,
+            "external_semantic_generalization_proven": False,
+            "test_scores_not_used_to_select_checkpoint": True,
+        },
         "lexical_baseline_note": (
             "Keyword/topic lexical ranking remains available; validation "
             "measures only synthetic source-derived pairwise comparisons."),

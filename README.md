@@ -1604,3 +1604,16 @@ python3 -m evolve v121-history
 ## v1.21.1 — Learning quality and compact progress
 
 A correct citation test is not a guarantee of a meaningful lesson: the extraction filter now refuses low-information subjects such as `result` and metalinguistic phrases such as `word photosphere`. Use `python3 -m evolve v121-report` for a short read-only summary of which questions were researched, citation quiz results, whether neural weights actually trained and which independent-source examples were missing *at the last cycle*. It does not rewrite historical manifests or give rights to new pages.
+
+## v1.22 — New-topic curiosity, rights qualification, and honest held-out benchmarking
+
+EVOLVE now advances to **unresearched** source-observed questions instead of spending subsequent cycles on the same already-researched words. `v122-evidence` inspects existing SHA-verified archives for per-host rights and candidate definition coverage **without** approving unknown training licenses or changing the stored corpus. When a genuine three-host neural ranker experiment becomes eligible, its checkpoint records an apples-to-apples lexical-vs-neural pairwise comparison on the same frozen validation/test samples. Easy mechanically labeled tests are not evidence of fluent reasoning.
+
+```bash
+python3 -m evolve v121-plan --max-topics 8
+python3 -m evolve v122-evidence
+python3 -m evolve v121-cycle --network --max-topics 8 --max-requests 6 --steps 120
+python3 -m evolve v121-report
+```
+
+[Full v1.22 upgrade guide](docs/CURIOSITY_PROGRESSION_V122.md).
