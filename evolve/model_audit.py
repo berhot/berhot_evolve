@@ -93,6 +93,9 @@ def audit_model_and_ownership(store, settings=None):
         }
         for kind, record in (v117.get("candidates", {}) if v117 else {}).items()
     }
+    v118qa = store.get("v118_qa_latest")
+    v118_history = store.get("v118_qa_history", []) or []
+    studio_jobs = store.get("v118_job_history", []) or []
     license_text = (ROOT / "LICENSE").read_text(encoding="utf-8")
     return {
         "status": "audited",
@@ -141,6 +144,18 @@ def audit_model_and_ownership(store, settings=None):
                 "validation_char_loss_after": store.get("char_lab_latest_candidate")["validation_char_loss_after"],
                 "diagnostic_source_leakage": store.get("char_lab_latest_candidate")["diagnostic_source_leakage"],
             } if store.get("char_lab_latest_candidate") else None),
+            "v118_supervised_qa_model": {
+                "checkpoint": _checkpoint(v118qa, store.root),
+                "training_runs": len(v118_history),
+                "human_reviewed_lessons": len(
+                    store.get("v118_qa_examples", []) or []),
+                "strict_host_holdout": v118qa.get("source_hosts") if v118qa else None,
+                "validation_answer_loss": (
+                    v118qa.get("validation_answer_loss_after")
+                    if v118qa else None),
+                "trained_answer_understanding_proven": False,
+            },
+            "v118_studio_recent_jobs": len(studio_jobs),
             "v117_strict_host_language_benchmark": {
                 "status": "trained" if v117 else "not_trained",
                 "history_run_count": len(v117_history),

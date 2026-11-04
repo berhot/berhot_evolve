@@ -58,6 +58,23 @@ def main(argv=None):
     rights_review.add_argument("--evidence-url", required=True)
     rights_review.add_argument("--confirm-manual-review", action="store_true",
         help="I personally reviewed this exact article, publisher ownership, no-AI signs and linked rights policy")
+    studio = sub.add_parser("studio", help="Launch local live web dashboard with chat and controlled learning")
+    studio.add_argument("--port", type=int, default=8787)
+    studio.add_argument("--interval", type=int, default=3600,
+                        help="Seconds between optional automatic dataset checks")
+    sub.add_parser("v118-plan", help="Inspect rights-cleared curriculum growth and learning targets")
+    sub.add_parser("v118-qa-readiness", help="Inspect human-approved source-backed QA training examples")
+    qa_add = sub.add_parser("v118-qa-add", help="Add human-reviewed source-quoted QA training example")
+    qa_add.add_argument("--question", required=True)
+    qa_add.add_argument("--answer", required=True)
+    qa_add.add_argument("--source-url", required=True)
+    qa_train = sub.add_parser("v118-qa-train", help="Train separate answer-only model on verified reviewed QA examples")
+    qa_train.add_argument("--steps", type=int, default=60)
+    qa_train.add_argument("--seed", type=int, default=31415)
+    chat = sub.add_parser("v118-chat", help="Talk to actual local neural weights or search approved local sources")
+    chat.add_argument("--question", required=True)
+    chat.add_argument("--mode", choices=["sources", "char", "byte_bpe", "qa"],
+                      default="sources")
     sub.add_parser("v117-plan", help="Audit available rights-declared training sources and missing hosts")
     sub.add_parser("v117-prepare", help="Freeze and verify strict three-host train/validation/test partitions")
     v117_train = sub.add_parser("v117-train", help="Train separate from-scratch char and original byte-BPE models")
@@ -315,6 +332,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
     settings = load_config(args.config)
 
+    if args.command == "studio":
+        from .v118_studio import serve
+        serve(settings, port=args.port, interval=args.interval)
+        return
     if args.command == "daemon":
         from .runtime import daemon
         daemon(settings)
@@ -369,6 +390,22 @@ def main(argv=None):
                 result = review_rights(store, args.url, args.license,
                                        args.evidence_url,
                                        confirmed=args.confirm_manual_review)
+            elif args.command == "v118-plan":
+                from .v118_core import curriculum
+                result = curriculum(store)
+            elif args.command == "v118-qa-readiness":
+                from .v118_core import qa_readiness
+                result = qa_readiness(store)
+            elif args.command == "v118-qa-add":
+                from .v118_core import add_qa_example
+                result = add_qa_example(store, args.question, args.answer,
+                                        args.source_url)
+            elif args.command == "v118-qa-train":
+                from .v118_core import train_qa
+                result = train_qa(store, settings, steps=args.steps, seed=args.seed)
+            elif args.command == "v118-chat":
+                from .v118_core import ask
+                result = ask(store, args.question, args.mode)
             elif args.command == "v117-plan":
                 from .v117 import plan
                 result = plan(store)

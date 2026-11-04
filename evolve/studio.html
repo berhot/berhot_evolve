@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="evolve-token" content="__EVOLVE_TOKEN__">
+<title>BERHOT — Learning Studio</title>
+<style>
+:root{color-scheme:dark;--bg:#090c15;--panel:#111827;--panel2:#171f30;--border:#293449;--text:#f2f5ff;--muted:#96a3ba;--accent:#9b8cff;--cyan:#50d6cb;--good:#68dfab;--warn:#f4be71}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 14% -5%,#29224b 0,transparent 30%),radial-gradient(circle at 95% 18%,#113339 0,transparent 32%),var(--bg);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text)}
+button,input,textarea,select{font:inherit}button{cursor:pointer}.shell{max-width:1370px;margin:auto;padding:24px 34px 70px}
+header{display:flex;justify-content:space-between;align-items:center;padding-bottom:28px;border-bottom:1px solid var(--border);gap:20px}
+.logo{display:flex;align-items:center;gap:12px}.emblem{height:36px;width:36px;display:grid;place-items:center;background:linear-gradient(150deg,#a499ff,#5f4fc9);border-radius:12px;font-weight:900;color:#101023}
+.brand{font-weight:800;letter-spacing:1.5px;font-size:16px}.brand small{font-size:10px;letter-spacing:2px;color:var(--muted);display:block}
+.right{display:flex;align-items:center;gap:13px;color:var(--muted);font-size:12px}.live{display:inline-flex;align-items:center;gap:8px;color:var(--good);border:1px solid #2a544a;background:#132c2a;padding:6px 11px;border-radius:40px}.dot{width:7px;height:7px;border-radius:50%;background:var(--good);box-shadow:0 0 9px var(--good)}
+.hero{padding:33px 0 21px;display:flex;align-items:end;justify-content:space-between;gap:18px}h1{font-size:30px;letter-spacing:-1px;margin:0 0 5px}h2{font-size:16px;margin:0;font-weight:700}p{margin:0;color:var(--muted)}.eyebrow{font-size:11px;letter-spacing:2px;color:var(--cyan);font-weight:700;text-transform:uppercase;margin-bottom:8px}
+.statusnote{background:#172434;border:1px solid #345265;border-radius:12px;padding:11px 14px;color:#a5c6d0;max-width:410px;font-size:12px}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:23px 0}
+.panel{background:linear-gradient(160deg,var(--panel),#0f1420);border:1px solid var(--border);border-radius:16px;padding:20px;min-width:0}
+.metric-label{color:var(--muted);font-size:12px;margin-bottom:9px}.metric-number{font-size:32px;font-weight:770;letter-spacing:-1.5px}.metric-sub{color:var(--muted);font-size:11px;margin-top:4px}.metric-icon{float:right;opacity:.7;font-size:20px}
+.layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(340px,1fr);gap:16px;align-items:start}
+.stack{display:grid;gap:16px}.panelhead{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:17px}.muted{color:var(--muted)}.small{font-size:12px}
+.tag{display:inline-block;font-size:11px;font-weight:600;background:#1b2837;border:1px solid #354254;border-radius:7px;padding:3px 8px;color:#a5b6c8}.tag.good{color:var(--good);background:#17352c;border-color:#2c5546}.tag.warn{color:var(--warn)}
+.bar{height:9px;width:100%;background:#242c3d;border-radius:12px;overflow:hidden;margin:13px 0}.bar>span{height:100%;display:block;max-width:100%;background:linear-gradient(90deg,#7c72f9,var(--cyan));width:0;transition:width .4s}
+.controls{display:flex;gap:9px;flex-wrap:wrap;align-items:center}.btn{border:1px solid #515e79;border-radius:9px;background:#263145;color:#ecf0ff;padding:9px 13px;font-weight:650}.btn:hover{background:#33425e}.btn.primary{background:linear-gradient(115deg,#7668ed,#685ce2);border-color:#8e82f5}.btn.danger{border-color:#b98257;color:#f5c394}
+input,textarea,select{width:100%;background:#0e1523;border:1px solid #34415b;border-radius:9px;color:#edf2ff;padding:10px 11px;outline:none}input:focus,textarea:focus,select:focus{border-color:var(--accent)}textarea{resize:vertical;min-height:75px}label{display:block;color:#bbc7dc;font-size:12px;margin:10px 0 5px}.row{display:flex;gap:8px}.row>*{min-width:0}.row input{flex:1}.row button{flex-shrink:0}
+.sep{height:1px;background:var(--border);margin:15px 0}.mline{display:flex;justify-content:space-between;gap:14px;font-size:12px;margin-top:8px}.mline strong{font-size:12px}.train-metric{font-size:28px;font-weight:700;line-height:1.2}.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;word-break:break-all}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}.model{padding:14px;border:1px solid #35415a;background:#141b2b;border-radius:11px}.model strong{display:block;font-size:15px}.model small{color:var(--muted);display:block;font-size:11px}
+.track{margin:10px 0}.tracktop{display:flex;justify-content:space-between;color:#bac8d8;font-size:12px}.thin{background:#253042;height:7px;margin-top:6px;border-radius:20px;overflow:hidden}.thin span{display:block;height:100%;background:#867bff;max-width:100%}
+.chatlog{min-height:230px;max-height:375px;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:4px 0 15px}.bubble{padding:12px 13px;border-radius:13px;max-width:93%;white-space:pre-wrap;word-wrap:break-word;background:#202a3a;align-self:flex-start}.bubble.mine{background:#3c3573;align-self:flex-end}.speaker{color:#b0bdd0;font-size:10px;font-weight:750;letter-spacing:1px;margin-bottom:5px}.sources a{display:block;color:#7de0d2;margin-top:8px;font-size:11px;word-break:break-word}.outputwarning{color:var(--warn);font-size:11px;margin-top:9px}
+.time-line{border-left:2px solid #34465d;padding-left:15px;margin-left:4px}.event{position:relative;margin:0 0 15px;font-size:12px}.event:before{content:"";position:absolute;left:-20px;top:6px;height:8px;width:8px;background:#867bff;border-radius:50%}.event strong{display:block}.event small{color:var(--muted)}
+.notice{margin:14px 0;color:var(--warn);font-size:12px;min-height:18px}.empty{color:var(--muted);font-size:12px}
+footer{color:var(--muted);font-size:11px;text-align:center;margin-top:24px}
+@media(max-width:1050px){.layout{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.hero{align-items:start;flex-direction:column}}@media(max-width:560px){.shell{padding:16px 14px 50px}.stats{gap:8px}.panel{padding:15px}.metric-number{font-size:27px}.two{grid-template-columns:1fr}header .right span:last-child{display:none}h1{font-size:24px}.row{flex-wrap:wrap}}
+</style>
+</head>
+<body>
+<div class="shell">
+<header><div class="logo"><div class="emblem">B</div><div class="brand">BERHOT <small>EVOLVE / LEARNING STUDIO</small></div></div><div class="right"><span class="live"><span class="dot"></span>LOCAL ENGINE ONLINE</span><span id="clock">—</span></div></header>
+<section class="hero"><div><div class="eyebrow">Your AI laboratory, live</div><h1>Watch the brain learn.</h1><p>Real data. Real training steps. No pretending it's smarter than it is.</p></div><div class="statusnote">This is an experimental AI. You can chat with its actual neural model, or search approved source text. These are different modes, clearly labeled.</div></section>
+<section class="stats">
+<div class="panel"><span class="metric-icon">▦</span><div class="metric-label">Archived source pages</div><div class="metric-number" id="pages">—</div><div class="metric-sub">Collected for research, not all trainable</div></div>
+<div class="panel"><span class="metric-icon">✓</span><div class="metric-label">Rights-cleared sources</div><div class="metric-number" id="eligible">—</div><div class="metric-sub"><span id="hosts">—</span> independent source hosts</div></div>
+<div class="panel"><span class="metric-icon">◉</span><div class="metric-label">Trained neural families</div><div class="metric-number" id="families">—</div><div class="metric-sub">SHA-verified checkpoint records</div></div>
+<div class="panel"><span class="metric-icon">↗</span><div class="metric-label">Human-reviewed lessons</div><div class="metric-number" id="lessons">—</div><div class="metric-sub">QA examples for supervised learning</div></div>
+</section>
+<div class="layout">
+<div class="stack">
+<section class="panel"><div class="panelhead"><div><div class="eyebrow">Neural learning</div><h2>Training monitor</h2></div><span id="jobstatus" class="tag">Idle</span></div>
+<div class="mline"><span class="muted">Current phase</span><strong id="phase">Waiting for an experiment</strong></div>
+<div class="bar"><span id="progress"></span></div>
+<div class="mline"><span id="steps" class="muted">0 / 0 steps</span><span id="percent" class="muted">0%</span></div>
+<div class="two" style="margin-top:17px"><div><div class="metric-label">Time learning (current / last)</div><div class="train-metric" id="elapsed">0s</div></div><div><div class="metric-label">Estimated remaining time</div><div class="train-metric" id="eta">—</div></div></div>
+<div class="mline"><span class="muted">Last measured training loss</span><strong id="loss">—</strong></div>
+<div class="mline"><span class="muted">Last job result</span><strong id="jobresult">—</strong></div>
+<div class="sep"></div><div class="controls"><button class="btn primary" id="train-lm">Train text brain · 120 steps</button><button class="btn" id="train-qa">Train QA brain · 60 steps</button><button class="btn" id="crawl">Crawl queued pages</button></div>
+<div class="notice" id="train-notice"></div><p class="small">Every run is bounded. The current 120-step experiments start from scratch; they are not yet continuous fine-tuning of the prior model.</p>
+</section>
+<section class="panel"><div class="panelhead"><div><div class="eyebrow">Checkpoints</div><h2>Your neural models</h2></div><span class="tag good">Real PyTorch</span></div><div class="two"><div class="model"><strong>Character LM</strong><div class="metric-number" style="font-size:25px" id="charloss">—</div><small>Validation bits / UTF-8 byte</small><small class="mono" id="charhash" style="margin-top:7px">No checkpoint</small></div><div class="model"><strong>Byte-BPE LM</strong><div class="metric-number" style="font-size:25px" id="bpeloss">—</div><small>Validation bits / UTF-8 byte</small><small class="mono" id="bpehash" style="margin-top:7px">No checkpoint</small></div></div><div class="mline"><span class="muted">Supervised QA model</span><strong id="qastatus">Not trained</strong></div><p style="margin-top:12px;font-size:11px">Lower validation loss only means better prediction of this limited dataset. It is not proof of understanding.</p></section>
+<section class="panel"><div class="panelhead"><div><div class="eyebrow">Stage A / data</div><h2>Curriculum and knowledge sources</h2></div><button class="btn" id="refresh-plan">Analyze</button></div>
+<div id="goals"><div class="empty">Click Analyze to inspect approved data and what's missing.</div></div>
+<label for="seedurls">Add permitted article URL(s), one per line</label><textarea id="seedurls" placeholder="https://example.org/article"></textarea><div class="controls" style="margin-top:9px"><button id="queue" class="btn">Queue article URLs</button><span class="muted small">Crawling is always a separate explicit action.</span></div><div class="notice" id="queue-notice"></div></section>
+<section class="panel"><div class="panelhead"><div><div class="eyebrow">Stage B / instruction training</div><h2>Teach a sourced question &amp; answer</h2></div><span class="tag">Human-reviewed</span></div><p class="small">Write a question and paste an exact 15–220 character answer from an approved archived article. You are teaching a separate tiny neural QA model, not giving the model new rights.</p>
+<label for="lesson-q">Question</label><input id="lesson-q" maxlength="180" placeholder="What is a volcano?">
+<label for="lesson-a">Exact sentence or excerpt as answer</label><textarea id="lesson-a" maxlength="220" placeholder="Paste an exact quote from the archived article..."></textarea>
+<label for="lesson-url">Original approved article URL</label><input id="lesson-url" placeholder="https://www.usgs.gov/...">
+<button id="teach" class="btn primary" style="margin-top:12px">Save human-reviewed lesson</button><div id="lesson-notice" class="notice"></div><div class="mline"><span class="muted">QA readiness (train / validation / test)</span><strong id="qa-readiness">—</strong></div></section>
+</div>
+<div class="stack">
+<section class="panel"><div class="panelhead"><div><div class="eyebrow">Talk to EVOLVE</div><h2>Ask the actual system</h2></div><span class="tag good">Local / no API</span></div>
+<label for="chatmode" style="margin-top:0">Select how it answers</label><select id="chatmode"><option value="sources">Approved source lookup — readable quotations (not neural)</option><option value="byte_bpe">Neural · Byte-BPE — raw generated text</option><option value="char">Neural · Characters — raw generated text</option><option value="qa">Neural · Supervised QA (if trained)</option></select>
+<div class="chatlog" id="chatlog"><div class="bubble"><div class="speaker">EVOLVE</div>Hello. I'm a tiny learning experiment. In Source mode I can find passages in approved articles. Select Neural mode to hear what my own trained weights produce—my sentences are still very rough.</div></div>
+<label for="question">Message</label><div class="row"><input id="question" maxlength="280" placeholder="What causes a volcano?"><button id="send" class="btn primary">Send ↗</button></div><div id="chat-notice" class="notice"></div>
+<p class="small">Chatting does not train the model. Only explicit training jobs change model weights. Source snippets are shown with links.</p></section>
+<section class="panel"><div class="panelhead"><div><div class="eyebrow">Stage C / controlled loop</div><h2>Automatic learning checks</h2></div><span id="autotag" class="tag">OFF</span></div>
+<p class="small">When enabled, this running server periodically checks for a NEW, rights-approved dataset. It may train a fresh small language model if ≥12 eligible articles and ≥60 KB of training data are ready. It never approves rights or crawls the web automatically.</p>
+<div class="controls" style="margin:15px 0"><button id="auto-on" class="btn primary">Enable auto checks</button><button id="auto-off" class="btn">Stop auto checks</button></div>
+<div class="mline"><span class="muted">Next check</span><strong id="nextcheck">—</strong></div><div class="mline"><span class="muted">Last check</span><strong id="lastcheck">—</strong></div><div class="mline"><span class="muted">Required new approved data</span><strong>12 articles / 60 KB</strong></div>
+<div id="auto-notice" class="notice"></div><p class="small">Auto checks run only while this terminal's Studio process stays open. They are not independent research decisions.</p></section>
+<section class="panel"><div class="panelhead"><div><div class="eyebrow">Training history</div><h2>Recent activities</h2></div><span class="tag">Latest first</span></div><div id="activity" class="time-line"><div class="empty">No Studio jobs yet. Your earlier v1.17 checkpoints remain available above.</div></div></section>
+<section class="panel"><div class="eyebrow">Understand your AI</div><h2>What BERHOT can and cannot do</h2><div style="margin-top:12px"><div class="mline"><span>Collect &amp; store permitted science text</span><span style="color:var(--good)">✓ Working</span></div><div class="mline"><span>Train neural models after approval</span><span style="color:var(--good)">✓ Working</span></div><div class="mline"><span>Show real training progress</span><span style="color:var(--good)">✓ Working</span></div><div class="mline"><span>Search citations in local articles</span><span style="color:var(--good)">✓ Working</span></div><div class="mline"><span>Chat fluently like ChatGPT</span><span style="color:var(--warn)">Not yet</span></div><div class="mline"><span>Think independently or choose goals</span><span style="color:var(--warn)">Not yet</span></div></div></section>
+</div>
+</div><footer>BERHOT EVOLVE v1.18 · Experimental neural lab · Local machine only · Saved artifacts remain on your computer</footer>
+</div>
+<script>
+"use strict";
+const token=document.querySelector('meta[name="evolve-token"]').content;
+const $=id=>document.getElementById(id);
+let latest=null;
+const timeFmt=v=>{if(v==null||!Number.isFinite(Number(v)))return "—";v=Math.max(0,Math.round(Number(v)));return v>=3600?Math.floor(v/3600)+"h "+Math.floor(v%3600/60)+"m":v>=60?Math.floor(v/60)+"m "+(v%60)+"s":v+"s"};
+const dateFmt=s=>s?new Date(s).toLocaleString():"—";
+async function api(path,body){
+ const options={cache:"no-store"};
+ if(body!==undefined){options.method="POST";options.headers={"Content-Type":"application/json","X-Evolve-Key":token};options.body=JSON.stringify(body)}
+ const res=await fetch(path,options);const data=await res.json();if(!res.ok)throw Error(data.error||data.reason||data.status||("HTTP "+res.status));return data
+}
+function text(id,value){$(id).textContent=value??"—"}
+function notify(id,message){text(id,message)}
+function track(label,current,target){
+ const wrap=document.createElement("div");wrap.className="track";
+ const top=document.createElement("div");top.className="tracktop";
+ const name=document.createElement("span");name.textContent=label;
+ const val=document.createElement("span");val.textContent=Number(current).toLocaleString()+" / "+Number(target).toLocaleString();
+ top.append(name,val);wrap.append(top);
+ const line=document.createElement("div");line.className="thin";
+ const bar=document.createElement("span");bar.style.width=Math.min(100,100*current/Math.max(1,target))+"%";
+ line.append(bar);wrap.append(line);return wrap
+}
+async function refreshPlan(){
+ try{const p=await api("/api/plan");const goals=$("goals");goals.replaceChildren();
+ for(const [key,item] of Object.entries(p.progress_goals||{})){
+  const label={pilot_hosts:"Independent source hosts",diverse_articles:"Rights-cleared articles",training_text_characters:"Reviewed text characters",human_reviewed_qa:"Human-reviewed Q&A lessons"}[key]||key;
+  goals.append(track(label,item.current,item.target))
+ }
+ const x=document.createElement("p");x.className="small";x.style.marginTop="12px";
+ x.textContent=p.ready_for_independent_training?"Strict source-host dataset is ready. Expand article variety for better text learning.":"More approved independent articles are needed for a strict training dataset.";
+ goals.append(x)
+ }catch(err){notify("queue-notice","Planning error: "+err.message)}
+}
+async function refresh(){
+ try{
+ const s=await api("/api/status");latest=s;
+ text("clock",dateFmt(s.time_utc));text("pages",s.archived_pages);text("eligible",s.rights_eligible_articles);text("hosts",s.rights_eligible_hosts);
+ text("families",Object.keys(s.v117_models||{}).length+(s.v118_qa_model?1:0));
+ text("lessons",s.human_reviewed_qa_examples);
+ const models=s.v117_models||{};text("charloss",models.char?.val_bits_per_byte??"—");text("bpeloss",models.byte_bpe?.val_bits_per_byte??"—");
+ text("charhash",models.char?models.char.sha256.slice(0,16)+"…":"No checkpoint");
+ text("bpehash",models.byte_bpe?models.byte_bpe.sha256.slice(0,16)+"…":"No checkpoint");
+ text("qastatus",s.v118_qa_model?"SHA "+s.v118_qa_model.sha256.slice(0,12)+"…":"Not yet trained");
+ const ready=s.qa_training_readiness||{};text("qa-readiness",ready.counts?["train","val","test"].map(k=>ready.counts[k]).join(" / "):"Not ready");
+ const j=s.job||{};const running=j.status==="running";
+ text("jobstatus",j.status?j.status.toUpperCase():"IDLE");$("jobstatus").className="tag "+(running?"warn":j.status==="completed"?"good":"");
+ text("phase",j.phase||"Waiting for an experiment");
+ const total=j.target_steps||0,done=Math.min(total,j.completed_steps||0),pct=total?Math.round(done/total*100):0;
+ $("progress").style.width=pct+"%";text("percent",pct+"%");text("steps",done+" / "+total+" steps");
+ text("elapsed",timeFmt(running?j.elapsed_seconds:j.duration_seconds));text("eta",running?timeFmt(j.estimated_remaining_seconds):"—");
+ text("loss",j.training_loss??"—");text("jobresult",j.result_summary?.reason||j.result_summary?.status||j.error||j.status||"—");
+ for(const name of ["train-lm","train-qa","crawl"])$(name).disabled=running;
+ text("autotag",s.auto.enabled?"ON":"OFF");$("autotag").className="tag "+(s.auto.enabled?"good":"");
+ text("nextcheck",dateFmt(s.auto.next_check_utc));text("lastcheck",dateFmt(s.auto.last_check_utc));
+ const a=$("activity");a.replaceChildren();const history=s.job_history||[];
+ if(!history.length){const e=document.createElement("div");e.className="empty";e.textContent="No Studio jobs yet.";a.append(e)}
+ for(const x of history.slice(0,8)){
+   const d=document.createElement("div");d.className="event";const st=document.createElement("strong");st.textContent=(x.kind||"job")+" · "+(x.status||"?");const small=document.createElement("small");small.textContent=dateFmt(x.started_at_utc)+" · "+timeFmt(x.duration_seconds)+" · "+(x.automatic?"auto check":"manual");d.append(st,small);a.append(d)
+ }
+ }catch(err){notify("train-notice","Connection error: "+err.message)}
+}
+async function runJob(kind,steps){try{const r=await api("/api/job",{kind,steps});notify("train-notice",r.status==="busy"?"Already running another job.":"Started "+kind+" job "+r.job_id);refresh()}catch(err){notify("train-notice",err.message)}}
+$("train-lm").onclick=()=>runJob("language",120);
+$("train-qa").onclick=()=>runJob("qa",60);
+$("crawl").onclick=()=>runJob("crawl",5);
+$("refresh-plan").onclick=refreshPlan;
+$("queue").onclick=async()=>{try{const urls=$("seedurls").value.split(/\n/).map(x=>x.trim()).filter(Boolean);const r=await api("/api/queue",{urls});notify("queue-notice","Queued: "+r.submitted+"; newly added: "+r.new_queue_urls+". Use Crawl queued pages.");$("seedurls").value="";refresh()}catch(err){notify("queue-notice",err.message)}};
+$("teach").onclick=async()=>{try{const r=await api("/api/lesson",{question:$("lesson-q").value,answer:$("lesson-a").value,url:$("lesson-url").value});notify("lesson-notice",r.status==="added"?"Saved reviewed lesson. Total: "+r.total_reviewed_qa:"Lesson already stored.");refresh()}catch(err){notify("lesson-notice",err.message)}};
+$("auto-on").onclick=async()=>{try{const r=await api("/api/auto",{enabled:true});notify("auto-notice","Automatic checks enabled. No automatic rights review or crawling.");refresh()}catch(err){notify("auto-notice",err.message)}};
+$("auto-off").onclick=async()=>{try{await api("/api/auto",{enabled:false});notify("auto-notice","Automatic checks stopped.");refresh()}catch(err){notify("auto-notice",err.message)}};
+function bubble(speaker,content,mine=false){
+ const el=document.createElement("div");el.className="bubble"+(mine?" mine":"");
+ const h=document.createElement("div");h.className="speaker";h.textContent=speaker;
+ const p=document.createElement("div");p.textContent=content;el.append(h,p);$("chatlog").append(el);$("chatlog").scrollTop=$("chatlog").scrollHeight;return el
+}
+async function send(){
+ const q=$("question").value.trim();if(!q)return;const mode=$("chatmode").value;$("question").value="";
+ bubble("YOU",q,true);const msg=bubble("EVOLVE / "+mode,"Thinking locally...");
+ try{const r=await api("/api/chat",{question:q,mode});msg.children[1].textContent=r.answer||r.error||"No output";
+ if(r.sources?.length){const sources=document.createElement("div");sources.className="sources";for(const s of r.sources){const a=document.createElement("a");a.href=s.url;a.target="_blank";a.rel="noopener noreferrer";a.textContent="Source · "+s.title;sources.append(a)}msg.append(sources)}
+ if(r.warning){const w=document.createElement("div");w.className="outputwarning";w.textContent=r.warning;msg.append(w)}
+ }catch(err){msg.children[1].textContent="Unable to answer: "+err.message}
+ $("chatlog").scrollTop=$("chatlog").scrollHeight
+}
+$("send").onclick=send;$("question").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();send()}};
+refresh();refreshPlan();setInterval(refresh,2500);
+</script>
+</body>
+</html>
