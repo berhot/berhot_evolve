@@ -238,13 +238,40 @@ class Store:
         return self.db.execute(
             "SELECT COUNT(*) FROM research_questions WHERE status='open'").fetchone()[0]
 
-    def next_open_questions(self, limit=5, cooldown_seconds=3600):
+    def next_open_questions(self, limit=5, cooldown_seconds=3600, supported_only=False):
+        """Never spend the evidence-fetch budget on question formats we cannot answer."""
         import time
         cutoff = time.time() - max(0, float(cooldown_seconds))
+        support_filter = "AND question LIKE 'What is %?' " if supported_only else ""
         return [dict(row) for row in self.db.execute(
             "SELECT id,concept,question,source_url,source_title FROM research_questions "
             "WHERE status='open' AND (last_attempt_at IS NULL OR last_attempt_at<=?) "
-            "ORDER BY id LIMIT ?", (cutoff, max(1, min(int(limit), 50))))]
+            + support_filter + "ORDER BY attempts, id LIMIT ?",
+            (cutoff, max(1, min(int(limit), 50))))]
+
+    def unsupported_question_count(self):
+        return self.db.execute(
+            "SELECT COUNT(*) FROM research_questions "
+            "WHERE status='open' AND question NOT LIKE 'What is %?'").fetchone()[0]
+
+    def related_frontier_urls(self, concept, limit=12):
+        """Find additional already-discovered URLs with meaningful concept slugs."""
+        from urllib.parse import unquote, urlsplit
+        import re
+        key = re.sub(r"[^a-z0-9]+", "-", concept.casefold()).strip("-")
+        if len(key) < 3:
+            return []
+        found = []
+        for row in self.db.execute(
+            "SELECT url FROM web_frontier WHERE status IN ('pending','done') "
+            "ORDER BY depth,discovered_at LIMIT 5000"):
+            slug = unquote(urlsplit(row['url']).path).casefold()
+            slug = re.sub(r"[^a-z0-9]+", "-", slug).strip("-")
+            if key in slug.split("-") or key in slug:
+                found.append(row['url'])
+                if len(found) >= max(1, min(int(limit), 50)):
+                    break
+        return found
 
     def mark_question_attempt(self, question_id):
         import time
@@ -326,7 +353,7 @@ class Store:
             where.append("split=?")
             params.append(split)
         if verified_only:
-            where.append("topic='verified:definition'")
+            where.append("topic IN ('verified:definition','verified:arithmetic')")
             where.append("license='SELF-GENERATED-VERIFIED'")
         sql = "SELECT * FROM documents"
         if where:
@@ -433,6 +460,9 @@ class Store:
             "verified_answers_training_eligible": self.db.execute(
                 "SELECT COUNT(*) FROM verified_answers WHERE training_eligible=1").fetchone()[0],
             "verified_neural_documents": len(self.documents(verified_only=True)),
+            "verified_arithmetic_documents": self.db.execute(
+                "SELECT COUNT(*) FROM documents WHERE topic='verified:arithmetic'").fetchone()[0],
+            "unsupported_open_questions": self.unsupported_question_count(),
             "concepts_discovered": self.db.execute("SELECT COUNT(*) FROM concept_tasks").fetchone()[0],
             "latest_promoted_model": dict(self.latest_promoted()) if self.latest_promoted() else None,
         }
