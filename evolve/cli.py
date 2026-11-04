@@ -120,6 +120,24 @@ def main(argv=None):
     multiop_predict.add_argument("--operator", choices=["+", "-", "*"], required=True)
     multiop_predict.add_argument("--seed", type=int, default=None)
     multiop_predict.add_argument("--candidate", action="store_true")
+    interaction = sub.add_parser("interaction-lab", help="Train a shared 3-operation bilinear neural experiment")
+    interaction.add_argument("--seed", type=int, default=31415)
+    interaction.add_argument("--steps", type=int, default=800)
+    interaction.add_argument("--rank", type=int, default=8)
+    interaction.add_argument("--count", type=int, default=20)
+    interaction.add_argument("--probe-seed", type=int, default=20261104)
+    interaction_study = sub.add_parser("interaction-study", help="Report all seeds on fresh and previous OOD probes")
+    interaction_study.add_argument("--seeds", nargs="+", type=int, default=[31415,42,1001])
+    interaction_study.add_argument("--steps", type=int, default=800)
+    interaction_study.add_argument("--rank", type=int, default=8)
+    interaction_study.add_argument("--count", type=int, default=20)
+    interaction_study.add_argument("--probe-seed", type=int, default=20261104)
+    interaction_predict = sub.add_parser("interaction-predict", help="Predict with saved learned bilinear model")
+    interaction_predict.add_argument("--a", type=int, required=True)
+    interaction_predict.add_argument("--b", type=int, required=True)
+    interaction_predict.add_argument("--operator", choices=["+", "-", "*"], required=True)
+    interaction_predict.add_argument("--seed", type=int, default=None)
+    interaction_predict.add_argument("--candidate", action="store_true")
     rule_predict_parser.add_argument("--candidate", action="store_true",
                                      help="Inspect latest candidate even if validation rejected it")
     assess_parser = sub.add_parser("assess", help="Measure raw numeric formatting and exact answers on unseen arithmetic")
@@ -249,6 +267,20 @@ def main(argv=None):
             elif args.command == "multiop-predict":
                 from .multiop_lab import predict_multiop_lab
                 result = predict_multiop_lab(store, args.a, args.b,
+                    operator=args.operator, seed=args.seed, candidate=args.candidate)
+            elif args.command == "interaction-lab":
+                from .interaction_lab import run_interaction_lab
+                result = run_interaction_lab(store, settings, seed=args.seed,
+                    steps=args.steps, rank=args.rank, count=args.count,
+                    probe_seed=args.probe_seed)
+            elif args.command == "interaction-study":
+                from .interaction_lab import run_interaction_study
+                result = run_interaction_study(store, settings, seeds=args.seeds,
+                    steps=args.steps, rank=args.rank, count=args.count,
+                    probe_seed=args.probe_seed)
+            elif args.command == "interaction-predict":
+                from .interaction_lab import predict_interaction_lab
+                result = predict_interaction_lab(store, args.a, args.b,
                     operator=args.operator, seed=args.seed, candidate=args.candidate)
             elif args.command == "assess":
                 from .evaluation import evaluate_arithmetic
