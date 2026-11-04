@@ -4,7 +4,7 @@ Network research is SOURCE LOOKUP, never neural knowledge. Eligible self-study
 examples are mechanically generated from already rights-cleared local articles,
 without any invented answers, with independent host partitions and provenance.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote, urlsplit
 import hashlib
 import json
@@ -111,7 +111,35 @@ def cached(store, question):
     return store.get(_key(topic)) if topic else None
 
 
-def smart_lookup(store, question):
+def budget_status(store, settings=None):
+    """Read the shared UTC daily crawl budget; never reset or bypass it."""
+    if settings is None:
+        from .settings import load_config
+        settings = load_config()
+    now = datetime.now(timezone.utc)
+    day = now.strftime("%Y-%m-%d")
+    used = int(store.get("web_requests_" + day, 0))
+    limit = max(0, int(settings.get("daily_request_budget", 60)))
+    return {
+        "limit": limit, "used": used, "remaining": max(0, limit-used),
+        "day_utc": day,
+        "reset_at_utc": (now.replace(hour=0, minute=0, second=0,
+                                      microsecond=0) + timedelta(days=1)).isoformat(),
+    }
+
+
+def _may_retry(store, record, settings=None):
+    if not record or record.get("status") != "unresolved":
+        return False
+    # Quota failures are not evidence failures. Retry as soon as the
+    # shared budget has room (e.g. after UTC midnight), even if the
+    # original one-hour generic cooldown has not yet expired.
+    if record.get("reason") == "daily_budget_exhausted":
+        return budget_status(store, settings)["remaining"] > 0
+    return time.time() >= record.get("retry_after_epoch", float("inf"))
+
+
+def smart_lookup(store, question, settings=None):
     """Return local approved quotes / recorded research, or an unresolved task."""
     topic = _topic(question)
     local = answer_from_sources(store, question)
@@ -135,7 +163,7 @@ def smart_lookup(store, question):
                 "warning": "An exact passage from previously rights-approved saved text. No neural weights changed.",
             }
     saved = cached(store, question)
-    if saved and saved["status"] == "unresolved" and time.time() >= saved.get("retry_after_epoch", float("inf")):
+    if _may_retry(store, saved, settings):
         saved = None
     if saved:
         if saved["status"] == "researched":
@@ -149,10 +177,17 @@ def smart_lookup(store, question):
                     "verified as fact, not neural memory or neural training."
                 ),
             }
+        budget = budget_status(store, settings)
+        quota_blocked = (saved.get("reason") == "daily_budget_exhausted"
+                         and budget["remaining"] == 0)
         return {
-            "mode": "curiosity", "status": saved["status"],
-            "answer": saved["answer"],
-            "sources": saved.get("sources", []),
+            "mode": "curiosity",
+            "status": "research_budget_exhausted" if quota_blocked else saved["status"],
+            "reason": saved.get("reason"),
+            "answer": (f"Research paused: {budget['used']}/{budget['limit']} "
+                       f"requests used today. Budget resets at {budget['reset_at_utc']}."
+                       if quota_blocked else saved["answer"]),
+            "research_budget": budget, "sources": saved.get("sources", []),
             "training_updated": False,
         }
     if topic is None:
@@ -160,6 +195,17 @@ def smart_lookup(store, question):
             "mode": "curiosity", "status": "unsupported",
             "answer": "I can investigate a short English subject such as 'moon' or 'What is gravity?'. I cannot yet autonomously solve arbitrary multi-step questions.",
             "sources": [], "training_updated": False,
+        }
+    budget = budget_status(store, settings)
+    if budget["remaining"] == 0:
+        return {
+            "mode": "curiosity", "status": "research_budget_exhausted",
+            "topic": topic,
+            "answer": (f"No network research available yet: {budget['used']}/"
+                       f"{budget['limit']} requests used today. "
+                       f"Resets at {budget['reset_at_utc']}. "
+                       "No additional network request was made."),
+            "research_budget": budget, "sources": [], "training_updated": False,
         }
     return {
         "mode": "curiosity", "status": "needs_research",
@@ -179,12 +225,20 @@ def research(store, settings, question, fetcher=None, progress=None,
     if topic is None:
         return {"status": "unsupported_question", "question": str(question)[:180]}
     previous = cached(store, topic)
-    if previous and previous["status"] == "unresolved" and time.time() >= previous.get("retry_after_epoch", float("inf")):
+    if _may_retry(store, previous, settings):
         previous = None
     if previous:
+        budget = budget_status(store, settings)
+        blocked = (previous.get("reason") == "daily_budget_exhausted"
+                   and budget["remaining"] == 0)
         return {
             "status": "cached_" + previous["status"],
-            "topic": topic, "answer": previous["answer"],
+            "reason": previous.get("reason"),
+            "topic": topic,
+            "answer": (f"Research paused: {budget['used']}/{budget['limit']} "
+                       f"daily requests used. Resets at {budget['reset_at_utc']}."
+                       if blocked else previous["answer"]),
+            "research_budget": budget,
             "sources": previous.get("sources", []),
         }
     used_key = "web_requests_" + time.strftime("%Y-%m-%d", time.gmtime())
@@ -251,12 +305,20 @@ def research(store, settings, question, fetcher=None, progress=None,
     reason = ("daily_budget_exhausted" if attempted == 0 or
               int(store.get(used_key, 0)) >= budget and attempted < len(max_urls)
               else "no_supported_passage")
+    quota = budget_status(store, settings)
+    explanation = (
+        f"Research stopped by the daily limit: {quota['used']}/{quota['limit']} "
+        f"requests used. Retry when the budget resets at {quota['reset_at_utc']}."
+        if reason == "daily_budget_exhausted" else
+        "No usable passage was found in the bounded public source candidates. "
+        "No answer was invented."
+    )
     record = {
         "status": "unresolved", "topic": topic,
-        "answer": ("I couldn't find a trustworthy enough excerpt in the two "
-                   "permitted research candidates. No answer was invented."),
+        "answer": explanation,
         "sources": [], "finished_at_utc": _utc(),
         "reason": reason, "error_details": errors[:2],
+        "research_budget": quota,
         "retry_after_epoch": time.time() + 3600,
         "neural_weights_updated": False,
     }
