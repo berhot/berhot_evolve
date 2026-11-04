@@ -138,6 +138,23 @@ def main(argv=None):
     interaction_predict.add_argument("--operator", choices=["+", "-", "*"], required=True)
     interaction_predict.add_argument("--seed", type=int, default=None)
     interaction_predict.add_argument("--candidate", action="store_true")
+    audit = sub.add_parser("basis-audit", help="Read-only effective polynomial coefficient audit for v1.5 checkpoint")
+    audit.add_argument("--seed", type=int, default=31415)
+    audit.add_argument("--a", type=int, default=27)
+    audit.add_argument("--b", type=int, default=28)
+    basis = sub.add_parser("basis-lab", help="Fit a supplied polynomial basis on 0..9 examples with float64 least squares")
+    basis.add_argument("--seed", type=int, default=31415)
+    basis.add_argument("--count", type=int, default=20)
+    basis.add_argument("--probe-seed", type=int, default=20261104)
+    basis_study = sub.add_parser("basis-study", help="Report fitted polynomial reference and frozen v1.5 for all seeds")
+    basis_study.add_argument("--seeds", nargs="+", type=int, default=[31415, 42, 1001])
+    basis_study.add_argument("--count", type=int, default=20)
+    basis_study.add_argument("--probe-seed", type=int, default=20261104)
+    basis_predict = sub.add_parser("basis-predict", help="Predict from saved fitted polynomial coefficients")
+    basis_predict.add_argument("--a", type=int, required=True)
+    basis_predict.add_argument("--b", type=int, required=True)
+    basis_predict.add_argument("--operator", choices=["+", "-", "*"], required=True)
+    basis_predict.add_argument("--seed", type=int, default=None)
     rule_predict_parser.add_argument("--candidate", action="store_true",
                                      help="Inspect latest candidate even if validation rejected it")
     assess_parser = sub.add_parser("assess", help="Measure raw numeric formatting and exact answers on unseen arithmetic")
@@ -282,6 +299,22 @@ def main(argv=None):
                 from .interaction_lab import predict_interaction_lab
                 result = predict_interaction_lab(store, args.a, args.b,
                     operator=args.operator, seed=args.seed, candidate=args.candidate)
+            elif args.command == "basis-audit":
+                from .basis_lab import audit_interaction_coefficients
+                result = audit_interaction_coefficients(store, seed=args.seed,
+                                                        a=args.a, b=args.b)
+            elif args.command == "basis-lab":
+                from .basis_lab import run_basis_lab
+                result = run_basis_lab(store, seed=args.seed, count=args.count,
+                                       probe_seed=args.probe_seed)
+            elif args.command == "basis-study":
+                from .basis_lab import run_basis_study
+                result = run_basis_study(store, seeds=args.seeds, count=args.count,
+                                         probe_seed=args.probe_seed)
+            elif args.command == "basis-predict":
+                from .basis_lab import predict_basis_lab
+                result = predict_basis_lab(store, a=args.a, b=args.b,
+                                           operator=args.operator, seed=args.seed)
             elif args.command == "assess":
                 from .evaluation import evaluate_arithmetic
                 result = evaluate_arithmetic(store, settings, questions=args.questions,
