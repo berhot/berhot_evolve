@@ -36,7 +36,7 @@ The corpus-seed and corpus-crawl commands accept any PUBLIC HTTPS HTML
 sites that pass safe DNS, robots.txt, network, size and bounded crawl rules.
 No CC0/PD declaration is needed merely to extract and archive text.
 An absent declaration becomes rights_status=UNKNOWN. The crawler records
-publisher no-AI flags instead of hiding them. Raw HTML and cleaned text
+publisher no-AI flags instead of hiding them. Decoded HTML snapshots and cleaned text
 are stored separately with SHA256 digests and URL-level provenance.
 Normalized content is deduplicated by exact hash; semantic deduplication
 and near-copy detection are NOT yet implemented.
