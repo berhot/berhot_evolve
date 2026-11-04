@@ -65,6 +65,16 @@ class Store:
                 term TEXT PRIMARY KEY, source_url TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS research_questions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                concept TEXT NOT NULL,
+                question TEXT NOT NULL,
+                source_url TEXT NOT NULL,
+                source_title TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'open',
+                created_at TEXT NOT NULL,
+                UNIQUE(concept,question,source_url)
+            );
             CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         """)
         # Migrate existing v0.3 databases without losing discoveries.
@@ -73,6 +83,9 @@ class Store:
             self.db.execute("ALTER TABLE concept_tasks ADD COLUMN priority REAL NOT NULL DEFAULT 0")
         if "source_title" not in columns:
             self.db.execute("ALTER TABLE concept_tasks ADD COLUMN source_title TEXT NOT NULL DEFAULT ''")
+        # v0.4 'reviewed' meant only that questions were logged; requeue
+        # those topics once so persistent open questions can be created.
+        self.db.execute("UPDATE concept_tasks SET status='pending' WHERE status='reviewed'")
         self.db.commit()
 
     def close(self):
@@ -191,6 +204,28 @@ class Store:
     def mark_concept_task(self,term,status):
         self.db.execute('UPDATE concept_tasks SET status=? WHERE term=?',(status,term))
         self.db.commit()
+
+    def add_research_question(self, concept, question, source_url, source_title='', maximum=5000):
+        """Queue a source-grounded research question, NOT a verified claim."""
+        if self.db.execute('SELECT COUNT(*) FROM research_questions').fetchone()[0] >= maximum:
+            return False
+        cur = self.db.execute(
+            "INSERT OR IGNORE INTO research_questions "
+            "(concept,question,source_url,source_title,created_at) VALUES (?,?,?,?,?)",
+            (concept, question[:500], source_url, source_title[:300], now()))
+        self.db.commit()
+        return cur.rowcount > 0
+
+    def list_research_questions(self, limit=20):
+        return [dict(row) for row in self.db.execute(
+            "SELECT id,concept,question,status,source_title,source_url "
+            "FROM research_questions ORDER BY CASE WHEN status='open' THEN 0 ELSE 1 END,"
+            " id LIMIT ?", (max(1, min(int(limit), 100)),))]
+
+    def open_questions_count(self):
+        return self.db.execute(
+            "SELECT COUNT(*) FROM research_questions WHERE status='open'").fetchone()[0]
+
 
     def recent_web_errors(self, limit=10):
         """Return recorded crawl failures without exposing scraped page contents."""
@@ -319,6 +354,9 @@ class Store:
             "web_completed_urls": self.db.execute("SELECT COUNT(*) FROM web_frontier WHERE status='done'").fetchone()[0],
             "web_error_urls": self.db.execute("SELECT COUNT(*) FROM web_frontier WHERE status='error'").fetchone()[0],
             "concepts_pending": self.pending_concepts(),
+            "research_questions_open": self.open_questions_count(),
+            "research_questions_verified": self.db.execute(
+                "SELECT COUNT(*) FROM research_questions WHERE status='verified'").fetchone()[0],
             "concepts_discovered": self.db.execute("SELECT COUNT(*) FROM concept_tasks").fetchone()[0],
             "latest_promoted_model": dict(self.latest_promoted()) if self.latest_promoted() else None,
         }
