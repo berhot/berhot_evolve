@@ -10,6 +10,7 @@ from threading import RLock, Thread, Event
 import html
 import json
 import math
+import hashlib
 import secrets
 import time
 from urllib.parse import urlsplit
@@ -20,6 +21,8 @@ from .web_discovery import discover_web
 from .v117 import train as train_language, prepare
 from .v118_core import (ask, add_qa_example, train_qa, qa_readiness,
                         curriculum)
+from .v119_curiosity import (smart_lookup, research as research_topic,
+                             sentence_lessons, inventory as curiosity_inventory)
 
 HOST = "127.0.0.1"
 MAX_BODY = 16384
@@ -82,6 +85,7 @@ class LearningController:
                 "status": "needs_reviewed_examples"}
             job = store.get("v118_last_job")
             history = store.get("v118_job_history", []) or []
+            curiosity = curiosity_inventory(store)
             if job and job["status"] == "running":
                 # If the process restarted, persisted 'running' is stale.
                 if not current_job:
@@ -106,6 +110,9 @@ class LearningController:
                 "rights_eligible_hosts": int(approved["hosts"]),
                 "pending_crawl_urls": int(pending),
                 "human_reviewed_qa_examples": len(qa_examples),
+                "source_derived_lessons": curiosity["source_derived_lessons"],
+                "research_attempts": curiosity["research_attempts"],
+                "recent_learning_events": curiosity["recent_learning_events"],
                 "qa_training_readiness": qa_plan,
                 "v117_models": {
                     k: {"sha256": v["sha256"],
@@ -128,6 +135,8 @@ class LearningController:
                     "minimum_training_articles": 12,
                     "minimum_training_bytes": 60000,
                     "network_crawl_in_auto_mode": False,
+                    "source_study_when_new_approved_articles": True,
+                    "network_research_triggered_by_auto_chat": True,
                     "rights_auto_approval": False,
                     "new_dataset_required": True,
                     "note": "Only while this local server runs. Checks new reviewed data and starts bounded experiments; not independently chosen research goals.",
@@ -156,13 +165,31 @@ class LearningController:
 
     def talk(self, question, mode):
         with self.lock:
-            if self.active and self.active.is_alive() and mode != "sources":
+            if self.active and self.active.is_alive() and mode not in ("sources", "auto"):
                 raise ValueError("Neural chat is disabled while training; use source lookup")
         store = self._store()
         try:
-            return ask(store, question, mode)
+            if mode == "auto":
+                result = smart_lookup(store, question)
+            else:
+                result = ask(store, question, mode)
         finally:
             store.close()
+        if mode == "auto" and result.get("status") == "needs_research":
+            # Explicit Auto chat request authorizes a bounded background
+            # read-only web investigation. No rights auto-admission.
+            started = self.submit("research", steps=2, question=question,
+                                  automatic=True)
+            if started["status"] == "started":
+                return {"status": "research_queued", "mode": "auto",
+                        "answer": "Searching permitted public science sources for " +
+                        result["topic"] + ". I will save citations, not invent an answer.",
+                        "job_id": started["job_id"], "sources": [],
+                        "training_updated": False}
+            return {"status": "research_waiting", "mode": "auto",
+                    "answer": "Another training/research job is running. Try again after it completes.",
+                    "sources": [], "training_updated": False}
+        return result
 
     def plan(self):
         store = self._store()
@@ -183,11 +210,15 @@ class LearningController:
         return {"status": "updated", "auto_enabled": enabled,
                 "warning": "Only detects new eligible datasets and trains bounded experiments. Does not approve rights or gather new sites by itself."}
 
-    def submit(self, kind, steps=None, automatic=False):
-        if kind not in ("language", "qa", "crawl"):
-            raise ValueError("Allowed jobs: language, qa, crawl")
+    def submit(self, kind, steps=None, automatic=False, question=None):
+        if kind not in ("language", "qa", "crawl", "research", "self-study"):
+            raise ValueError("Allowed jobs: language, qa, crawl, research, self-study")
+        if kind == "research" and (not isinstance(question, str) or
+                                    not 1 <= len(question.strip()) <= 180):
+            raise ValueError("Research requires a short question")
         if steps is None:
-            steps = 120 if kind == "language" else (60 if kind == "qa" else 5)
+            steps = (120 if kind == "language" else 60 if kind in ("qa", "self-study")
+                     else 2 if kind == "research" else 5)
         steps = _safe_int(steps, 1, 500 if kind != "crawl" else 10)
         with self.lock:
             if self.active is not None and self.active.is_alive():
@@ -200,7 +231,9 @@ class LearningController:
                 "target_steps": steps * 2 if kind == "language" else steps,
                 "training_loss": None,
             }
-            t = Thread(target=self._worker, args=(job, steps), daemon=True)
+            if kind == "research":
+                job["topic"] = question.strip()[:180]
+            t = Thread(target=self._worker, args=(job, steps, question), daemon=True)
             store = self._store()
             try:
                 store.put("v118_last_job", job)
@@ -211,7 +244,7 @@ class LearningController:
         return {"status": "started", "job_id": job["id"], "kind": kind,
                 "target_steps": job["target_steps"]}
 
-    def _worker(self, job, steps):
+    def _worker(self, job, steps, question=None):
         store = self._store()
         started = time.monotonic()
         last_saved = {"at": 0.0}
@@ -235,6 +268,23 @@ class LearningController:
                 progress("qa_readiness", 0, steps, None)
                 result = train_qa(store, self.settings,
                                   steps=steps, progress=progress)
+            elif job["kind"] == "research":
+                progress("searching_public_sources", 0, 2, None)
+                result = research_topic(store, self.settings, question,
+                                        progress=progress)
+            elif job["kind"] == "self-study":
+                progress("extracting_source_exercises", 0, steps, None)
+                mined = sentence_lessons(store)
+                ready = qa_readiness(store)
+                if ready.get("status") == "ready":
+                    result = train_qa(store, self.settings, steps=steps,
+                                      progress=progress)
+                    result["source_derived_extraction"] = mined
+                else:
+                    result = {"status": "skipped",
+                              "reason": "not_enough_approved_source_exercises",
+                              "readiness": ready,
+                              "source_derived_extraction": mined}
             else:
                 progress("robots_and_crawl", 0, steps, None)
                 result = discover_web(store, self.settings, limit=steps,
@@ -300,6 +350,26 @@ class LearningController:
                 last = store.get("v117_latest")
                 eligible = info["eligible_articles"]
                 train_bytes = info["bytes_per_split"].get("train", 0)
+                # Self-study uses ONLY local approved source text. One bounded
+                # attempt per rights-approved content revision; never retry a
+                # rejected model forever on the exact same examples.
+                revision_rows = store.db.execute(
+                    "SELECT url,sha256 FROM web_corpus_sources WHERE noai=0 "
+                    "AND rights_status IN ('CC0-1.0','PUBLIC-DOMAIN') "
+                    "ORDER BY url").fetchall()
+                revision = hashlib.sha256(json.dumps(
+                    [[r["url"], r["sha256"]] for r in revision_rows]
+                ).encode("utf-8")).hexdigest()
+                if (len(revision_rows) >= 3 and
+                    revision != store.get("v119_auto_study_revision")):
+                    store.put("v119_auto_study_revision", revision)
+                    store.log("v119_auto_check", "source_study_ready",
+                              {"approved_sources": len(revision_rows),
+                               "revision_sha256": revision})
+                    store.close()
+                    store = None
+                    self.submit("self-study", steps=60, automatic=True)
+                    continue
                 if (info["ready_for_independent_training"] and
                     new_sha and (not last or last["dataset_sha256"] != new_sha)
                     and eligible >= 12 and train_bytes >= 60000):
@@ -400,6 +470,8 @@ def _handler(controller, token, origin):
                                                steps=body.get("steps"))
                 elif self.path == "/api/auto":
                     result = controller.set_auto(body.get("enabled"))
+                elif self.path == "/api/study":
+                    result = controller.submit("self-study", steps=body.get("steps", 60))
                 else:
                     return self._reply({"error": "not_found"}, 404)
                 self._reply(result, 200 if result.get("status") != "busy" else 409)

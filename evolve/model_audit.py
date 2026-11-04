@@ -93,6 +93,10 @@ def audit_model_and_ownership(store, settings=None):
         }
         for kind, record in (v117.get("candidates", {}) if v117 else {}).items()
     }
+    v119_auto = store.get("v119_auto_lessons", []) or []
+    research_log_count = int(store.db.execute(
+        "SELECT COUNT(*) FROM runs WHERE action='v119_research'"
+    ).fetchone()[0])
     v118qa = store.get("v118_qa_latest")
     v118_history = store.get("v118_qa_history", []) or []
     studio_jobs = store.get("v118_job_history", []) or []
@@ -144,6 +148,13 @@ def audit_model_and_ownership(store, settings=None):
                 "validation_char_loss_after": store.get("char_lab_latest_candidate")["validation_char_loss_after"],
                 "diagnostic_source_leakage": store.get("char_lab_latest_candidate")["diagnostic_source_leakage"],
             } if store.get("char_lab_latest_candidate") else None),
+            "v119_curiosity_learning": {
+                "bounded_research_attempts": research_log_count,
+                "source_derived_reading_exercises": len(v119_auto),
+                "new_unreviewed_research_allowed_to_train": False,
+                "neural_improvement_from_research_alone": False,
+                "can_auto_generate_approved_source_exercises": True,
+            },
             "v118_supervised_qa_model": {
                 "checkpoint": _checkpoint(v118qa, store.root),
                 "training_runs": len(v118_history),

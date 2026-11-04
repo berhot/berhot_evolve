@@ -211,7 +211,17 @@ def _qa_partitions(store):
     split_hosts = {h: split for split, hosts in frozen["source_hosts"].items()
                    for h in hosts}
     parts = {"train": [], "val": [], "test": []}
-    for row in store.get("v118_qa_examples", []) or []:
+    # Human-reviewed QA and automated, literal source-continuation exercises
+    # are both allowed, but their provenance stays distinct in the manifest.
+    # No unreviewed/external research source may become a neural training row.
+    seen_pairs = set()
+    rows = ((store.get("v118_qa_examples", []) or []) +
+            (store.get("v119_auto_lessons", []) or []))
+    for row in rows:
+        pair = (row["url"], row["question"], row["answer"])
+        if pair in seen_pairs:
+            continue
+        seen_pairs.add(pair)
         src, text = _approved_text(store, row["url"])
         if src["sha256"] != row["source_sha256"] or row["answer"] not in text:
             raise ValueError("Review-locked QA source changed")
@@ -231,7 +241,9 @@ def qa_readiness(store):
         "status": "ready" if ready else "needs_reviewed_examples",
         "counts": counts, "minimum": {"train": 8, "val": 2, "test": 2},
         "source_hosts": frozen["source_hosts"],
-        "warning": "Human-written questions and exact source answers are training examples, not verified semantic understanding.",
+        "human_reviewed_examples": len(store.get("v118_qa_examples", []) or []),
+        "auto_source_continuation_exercises": len(store.get("v119_auto_lessons", []) or []),
+        "warning": "Includes human-reviewed factual questions and/or mechanical source-continuation exercises; neither implies semantic understanding.",
     }
 
 
@@ -265,7 +277,7 @@ def train_qa(store, settings, steps=80, seed=31415, progress=None):
         return {"status": "skipped", "reason": "strict_host_holdout_missing"}
     ready = qa_readiness(store)
     if ready["status"] != "ready":
-        return {"status": "skipped", "reason": "insufficient_human_verified_qa",
+        return {"status": "skipped", "reason": "insufficient_source_grounded_examples",
                 "readiness": ready}
     block = 256
     samples = {split: [
@@ -278,7 +290,8 @@ def train_qa(store, settings, steps=80, seed=31415, progress=None):
     qa_manifest = {
         "format": "human_reviewed_qa_split_by_source_host_v118",
         "examples": {k: [{f: r[f] for f in (
-            "question", "answer", "url", "source_sha256")}
+            "question", "answer", "url", "source_sha256",
+            "source_provenance")}
             for r in parts[k]] for k in parts},
         "dataset_sha256": frozen["dataset_sha256"],
         "split_method": "source_host_holdout",
@@ -348,6 +361,10 @@ def train_qa(store, settings, steps=80, seed=31415, progress=None):
         "source_dataset_sha256": frozen["dataset_sha256"],
         "train_examples": len(samples["train"]),
         "val_examples": len(samples["val"]), "test_examples": len(samples["test"]),
+        "auto_source_continuation_examples": sum(
+            1 for split in parts for r in parts[split]
+            if r.get("source_provenance") ==
+            "auto_exact_source_continuation_not_verified_qa"),
         "validation_answer_loss_before": round(val_before, 5),
         "validation_answer_loss_after": round(val_after, 5),
         "test_answer_loss_after": round(test_after, 5),
