@@ -155,6 +155,19 @@ def main(argv=None):
     basis_predict.add_argument("--b", type=int, required=True)
     basis_predict.add_argument("--operator", choices=["+", "-", "*"], required=True)
     basis_predict.add_argument("--seed", type=int, default=None)
+    calibration = sub.add_parser("calibration-lab", help="Refit only v1.5's output head from original training pairs")
+    calibration.add_argument("--seed", type=int, default=31415)
+    calibration.add_argument("--count", type=int, default=20)
+    calibration.add_argument("--probe-seed", type=int, default=20261104)
+    calibration_study = sub.add_parser("calibration-study", help="Report every seed's frozen-v1.5 vs head-calibrated accuracy")
+    calibration_study.add_argument("--seeds", nargs="+", type=int, default=[31415,42,1001])
+    calibration_study.add_argument("--count", type=int, default=20)
+    calibration_study.add_argument("--probe-seed", type=int, default=20261104)
+    calibration_predict = sub.add_parser("calibration-predict", help="Predict using a saved calibrated v1.5 model")
+    calibration_predict.add_argument("--a", type=int, required=True)
+    calibration_predict.add_argument("--b", type=int, required=True)
+    calibration_predict.add_argument("--operator", choices=["+", "-", "*"], required=True)
+    calibration_predict.add_argument("--seed", type=int, default=31415)
     rule_predict_parser.add_argument("--candidate", action="store_true",
                                      help="Inspect latest candidate even if validation rejected it")
     assess_parser = sub.add_parser("assess", help="Measure raw numeric formatting and exact answers on unseen arithmetic")
@@ -315,6 +328,18 @@ def main(argv=None):
                 from .basis_lab import predict_basis_lab
                 result = predict_basis_lab(store, a=args.a, b=args.b,
                                            operator=args.operator, seed=args.seed)
+            elif args.command == "calibration-lab":
+                from .calibration_lab import run_calibration_lab
+                result = run_calibration_lab(store, seed=args.seed,
+                    count=args.count, probe_seed=args.probe_seed)
+            elif args.command == "calibration-study":
+                from .calibration_lab import run_calibration_study
+                result = run_calibration_study(store, seeds=args.seeds,
+                    count=args.count, probe_seed=args.probe_seed)
+            elif args.command == "calibration-predict":
+                from .calibration_lab import predict_calibration_lab
+                result = predict_calibration_lab(store, a=args.a, b=args.b,
+                    operator=args.operator, seed=args.seed)
             elif args.command == "assess":
                 from .evaluation import evaluate_arithmetic
                 result = evaluate_arithmetic(store, settings, questions=args.questions,
