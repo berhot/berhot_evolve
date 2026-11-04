@@ -19,23 +19,59 @@ This is an **experimental learning platform**, not a self-conscious agent or gen
 - Retains the v0.2 training, arithmetic verification, persistent skills and checkpoints, and long-running daemon.
 - The old `web-start` exists for specifically permitted training sources. A content URL can no longer be used as its own `AUTHORIZED-TRAINING` grant evidence.
 
+## macOS (zsh) / Linux (bash) — setup
+
+Open Terminal in the cloned repository folder. On macOS, use `python3` and `source` — **not** Windows commands such as `py -3` or `.\\.venv\\Scripts\\Activate.ps1`.
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install --upgrade pip
+python3 -m pip install -e '.[train]'
+python3 -m evolve --help
+```
+
+If you already ran `python3 -m venv .venv`, **do not recreate it**: just run `source .venv/bin/activate` and continue with the install commands. An activated shell usually displays `(.venv)` at the start of the prompt.
+
+When returning to the project in a new Terminal window:
+
+```bash
+cd /path/to/berhot_evolve
+source .venv/bin/activate
+```
+
+Use the actual repository location in place of `/path/to/berhot_evolve`. To exit the environment, run `deactivate`.
+
 ## Windows PowerShell — setup
 
-Open PowerShell in the extracted project folder:
+Open PowerShell in the cloned repository folder:
 
 ```powershell
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 python -m pip install -e ".[train]"
+python -m evolve --help
 ```
 
-If activation is blocked, first run `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process` in the same session.
+If activation is blocked, first run `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process` in the same session, then retry activation. Do not use `source` on Windows PowerShell.
+
+**Platform rule:** In the commands below, use `python3 -m evolve` on macOS/Linux and `python -m evolve` on Windows PowerShell. Neither platform needs a Wikimedia contact email for `explore`.
 
 ## Explore from one website — no API, no license parameter
 
 The following URL is the user's example. The page is **not treated as licensed neural-training material**:
 
+```bash
+# macOS / Linux
+python3 -m evolve explore --seed-url "https://www.worldometers.info/languages/english-alphabet/" --limit 8 --cross-host
+python3 -m evolve concepts --limit 20
+python3 -m evolve status
+python3 -m evolve discover --limit 8
+```
+
 ```powershell
+# Windows PowerShell
 python -m evolve explore --seed-url "https://www.worldometers.info/languages/english-alphabet/" --limit 8 --cross-host
 python -m evolve concepts --limit 20
 python -m evolve status
@@ -46,7 +82,14 @@ Any ordinary publicly accessible HTTPS HTML website may be attempted, provided a
 
 Continue scheduled observation and eligible training, if available:
 
+```bash
+# macOS / Linux
+python3 -m evolve once
+python3 -m evolve daemon
+```
+
 ```powershell
+# Windows PowerShell
 python -m evolve once
 python -m evolve daemon
 ```
@@ -70,6 +113,14 @@ Stop daemon using **Ctrl+C**. No GPU is necessary for crawling. Run `python -m e
 - For later image/audio/video/3D and social media: use dedicated opt-in/authorized connectors, scan files, minimize personal data, and run decoders in sandboxed workers.
 
 ## Quality assurance
+
+macOS / Linux:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+Windows PowerShell:
 
 ```powershell
 python -m unittest discover -s tests -v
@@ -98,8 +149,4 @@ Tests use local HTML fixtures and have **no external network dependency**. Live 
 
 For an alphabet tutorial, the system will prioritize terms actually seen in that tutorial, such as `alphabet`, `letters` and `vowels`, rather than inventing an unrelated operator-supplied subject. Discovered topics are ranked heuristically, stored with their page source and processed under queue limits. The `concepts` command shows their current status. This is a bootstrap toward intelligent self-directed research, not a demonstrated autonomous reasoning agent.
 
-To test locally on Windows PowerShell:
-
-```powershell
-python -m unittest discover -s tests -v
-```
+For setup, learning commands, and platform-specific tests, use the sections above.
