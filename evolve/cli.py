@@ -25,6 +25,14 @@ def main(argv=None):
     explore.add_argument('--limit', type=int, default=8)
     explore.add_argument('--cross-host', action='store_true', help='Follow public links across domains within crawl budgets')
     sub.add_parser("status", help="Show persistent learner status")
+    sub.add_parser("model-audit", help="Read-only actual local knowledge, saved models, autonomy and dependency inventory")
+    sub.add_parser("corpus-status", help="Show collected web pages, exact dedup, rights metadata and training separation")
+    corpus_seed = sub.add_parser("corpus-seed", help="Queue 1..20 public HTTPS sites without requiring a CC0 license")
+    corpus_seed.add_argument("--urls", nargs="+", required=True)
+    corpus_seed.add_argument("--same-host", action="store_true",
+                             help="Do not follow links across different hosts")
+    corpus_crawl = sub.add_parser("corpus-crawl", help="Bounded existing-queue HTML extraction and independent raw/clean corpus archive")
+    corpus_crawl.add_argument("--limit", type=int, default=5)
     retry_parser = sub.add_parser("retry-url", help="Retry one failed URL after correcting its connection problem")
     retry_parser.add_argument("--url", required=True)
 
@@ -246,6 +254,18 @@ def main(argv=None):
         try:
             if args.command == "status":
                 result = store.status()
+            elif args.command == "model-audit":
+                from .model_audit import audit_model_and_ownership
+                result = audit_model_and_ownership(store, settings=settings)
+            elif args.command == "corpus-status":
+                from .open_corpus import corpus_status
+                result = corpus_status(store)
+            elif args.command == "corpus-seed":
+                from .open_corpus import corpus_seed
+                result = corpus_seed(store, args.urls, cross_host=not args.same_host)
+            elif args.command == "corpus-crawl":
+                from .web_discovery import discover_web
+                result = discover_web(store, settings, limit=args.limit)
             elif args.command == "errors":
                 result = {"errors": store.recent_web_errors(args.limit)}
             elif args.command == "retry-url":

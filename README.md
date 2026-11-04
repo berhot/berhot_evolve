@@ -1,3 +1,66 @@
+# BERHOT EVOLVE v1.12 — Broad Public Web Corpus + Honest Model Audit
+
+## Major correction: collection is not neural training
+
+The old public explorer could read many HTTPS sites but usually stored
+only metadata without recognized CC0/public-domain declarations. This
+made the research DB active while preserving little reusable text.
+
+v1.12 adds a SEPARATE public HTML corpus that can collect any site
+accessible under HTTPS, public DNS, robots.txt, size/rate bounds and
+normal request rules. **The collection/archive phase does not require
+a CC0/public-domain license.** It records absent license as UNKNOWN
+instead of rejecting text solely for that reason. Decoded HTML snapshots and cleaned
+Unicode are saved under storage/web_corpus/; content-addressed SHA256
+deduplicates exact normalized copies and stores source metadata and
+publisher no-AI signals. The collector uses only Python standard library.
+
+**This is not universal browser access**, an auth/paywall bypass,
+semantic dedup, or permission to redistribute/training on any material.
+Collected web corpus is NOT silently inserted into existing neural
+training; a stored page is NOT learned knowledge.
+
+### Commands
+
+```bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+
+# Read the ACTUAL local checkpoint, data and dependency audit first:
+python3 -m evolve model-audit
+
+# Old research observations were metadata only. New sites get full archive:
+python3 -m evolve corpus-seed --urls https://example.org/ https://example.net/
+
+# Check shared UTC request budget; do not bypass rate limits:
+python3 -m evolve research-health
+
+# When remaining requests are available, crawl up to five queued pages:
+python3 -m evolve corpus-crawl --limit 5
+
+# Shows unique cleaned text count, rights metadata, raw source counts:
+python3 -m evolve corpus-status
+
+# Optional: run existing bounded automated cycles while process stays up:
+python3 -m evolve daemon
+```
+
+Multiple URLs may be queued in one command; cross-domain follow is on
+by default for corpus-seed and may be disabled with --same-host.
+Each website is still subject to its own robots.txt and access policies.
+
+**Important:** 96 arithmetic documents and 21 research observations
+do not imply 96 new facts or 21 learned websites. If concept-inventory
+reports zero eligible text definitions, the concept model has not learned
+any from the local training set. Use model-audit to see general and
+specialized checkpoints rather than assuming they ran.
+
+The original MIT LICENSE, PyTorch neural dependencies, existing research
+verifier and neural checkpoint registry remain unchanged.
+See docs/OWNERSHIP_AND_DEPENDENCIES.md for the roadmap to a BERHOT-owned
+native tensor/optimizer/Transformer implementation.
+
+## Previous version — v1.11
 # BERHOT EVOLVE v1.11 — Targeted Research & Offline Source Planning
 
 ## Why this change

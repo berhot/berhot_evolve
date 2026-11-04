@@ -243,7 +243,7 @@ def discover_web(store,settings,limit=None,fetcher=None,sleep_fn=time.sleep):
     max_links=int(settings.get('web',{}).get('max_links_per_page',5))
     max_concepts=int(settings.get('web',{}).get('max_concepts_total',60))
     max_new=int(settings.get('web',{}).get('new_concepts_per_page',3))
-    report={'status':'completed','attempted':0,'saved':0,'research_observed':0,'errors':0,'error_details':[], 'links_added':0,'concepts_added':0}
+    report={'status':'completed','attempted':0,'saved':0,'research_observed':0,'errors':0,'error_details':[], 'links_added':0,'concepts_added':0, 'corpus_archived':0, 'corpus_new_unique_texts':0, 'corpus_duplicates':0}
     for _ in range(cap):
         if used>=daily:
             report['status']='daily_budget_exhausted';break
@@ -264,6 +264,20 @@ def discover_web(store,settings,limit=None,fetcher=None,sleep_fn=time.sleep):
                 if observed!=profile['license']:
                     raise WebSourceError('This page does not declare the same reusable license')
             if len(text)<80:raise WebSourceError('Too little educational text')
+            # Keep a separate text archive for ALL accessible HTML, even when
+            # no CC0/PD declaration is found. Rights and noai are only source
+            # metadata here; this path NEVER writes neural training documents.
+            from .open_corpus import archive_page
+            declared, rights_evidence = detect_declared_rights(html, url)
+            corpus_result = archive_page(
+                store, url, html, text, title=title, noai=noai,
+                declared_license=declared, rights_url=rights_evidence)
+            if corpus_result["status"] == "archived":
+                report["corpus_archived"] += 1
+                if corpus_result["new_unique_text"]:
+                    report["corpus_new_unique_texts"] += 1
+                else:
+                    report["corpus_duplicates"] += 1
             concepts = [term for term, _ in ranked_concepts]
             if research_only:
                 # Discover freely without retaining text as a neural-training corpus.
