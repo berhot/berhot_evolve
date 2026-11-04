@@ -96,6 +96,33 @@ python -m evolve daemon
 
 Stop daemon using **Ctrl+C**. No GPU is necessary for crawling. Run `python -m evolve train` only if there are sufficient eligible training documents. If all pages are research-only, the model will not train from their full text; the system still records concepts and source pointers.
 
+## Troubleshooting: one attempted URL, zero concepts
+
+If `explore` reports `"attempted": 1`, `"errors": 1` and `"research_observed": 0`, then the seed fetch failed before any content was processed. This is **not** a sign that the model rejected the topic. The current response includes `error_details` with the URL and failure reason.
+
+To inspect failures stored in the existing SQLite database **without deleting your discoveries**, run:
+
+```bash
+# macOS / Linux
+python3 -m evolve errors --limit 10
+python3 -m evolve status
+```
+
+```powershell
+# Windows PowerShell
+python -m evolve errors --limit 10
+python -m evolve status
+```
+
+- `Website disallows automated access`: respect the website's policy and use a different permitted source.
+- `Robots availability uncertain (HTTP 403)`: the crawler could not verify `robots.txt`; do not bypass that restriction.
+- `Redirect refused`: the crawler deliberately rejects HTTP redirects rather than trusting an unknown destination.
+- `HTTP 403`, `HTTP 429`, or a connection timeout: inspect access policy and rate limits; do not evade access controls.
+- `Unable to resolve source host`: inspect local DNS/internet connectivity.
+- `Too little educational text`: the server returned a page without enough extractable text.
+
+Failed URLs remain recorded as errors; `discover` does not repeatedly hammer blocked pages. Register another permitted seed if necessary. A page being readable in a regular browser does not guarantee automated crawling is permitted.
+
 ## Protections against malicious sites
 
 - Only public HTTPS names on port 443 (no IP-literal, local, or private network addresses); public DNS resolution screening is best-effort.
