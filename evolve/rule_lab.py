@@ -185,6 +185,13 @@ def run_rule_lab(store, settings, steps=800, seed=31415, hidden=64):
         "validation_cross_entropy": after_val["cross_entropy"],
     }, path)
     digest = sha256_file(path)
+    store.put("rule_lab_latest_candidate", {
+        "path": str(path), "sha256": digest,
+        "format": FORMAT, "seed": seed, "hidden": int(hidden),
+        "accepted": accepted,
+        "validation_cross_entropy": after_val["cross_entropy"],
+        "test_accuracy": after_test["accuracy"],
+    })
     if accepted:
         store.put("rule_lab_latest", {
             "path": str(path), "sha256": digest,
@@ -217,14 +224,16 @@ def run_rule_lab(store, settings, steps=800, seed=31415, hidden=64):
     return report
 
 
-def predict_rule_lab(store, a, b):
-    """Infer using only weights of the generic neural classifier."""
+def predict_rule_lab(store, a, b, use_candidate=False):
+    """Infer from trained weights, clearly labeling unaccepted experiments."""
     a, b = int(a), int(b)
     if not (0 <= a <= 9 and 0 <= b <= 9):
         raise ValueError("Rule lab supports operands 0..9 only")
-    checkpoint = store.get("rule_lab_latest")
+    key = "rule_lab_latest_candidate" if use_candidate else "rule_lab_latest"
+    checkpoint = store.get(key)
     if not checkpoint:
-        return {"status": "skipped", "reason": "No accepted rule-lab checkpoint"}
+        return {"status": "skipped", "reason": "No matching rule-lab checkpoint",
+                "requested": "candidate" if use_candidate else "accepted"}
     torch, _ = require_torch()
     data = torch.load(checkpoint["path"], map_location="cpu", weights_only=True)
     if data["format"] != FORMAT:
@@ -238,6 +247,7 @@ def predict_rule_lab(store, a, b):
         confidence = float(logits.softmax(-1).max().item())
     return {
         "status": "predicted",
+        "checkpoint_status": ("accepted" if checkpoint.get("accepted", True) else "unaccepted_candidate"),
         "question": f"{a} + {b}",
         "model_answer": predicted,
         "confidence": round(confidence, 4),
