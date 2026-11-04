@@ -11,7 +11,8 @@ from evolve.settings import load_config
 from evolve.store import Store
 from evolve.v120_grounded import (
     extract_definition, grounded_answer, inventory, readiness,
-    topic_from_question, train_ranker,
+    topic_from_question, train_ranker, title_question, title_evidence,
+    diagnose_corpus,
 )
 
 try:
@@ -103,6 +104,68 @@ class DefinitionUnitTests(unittest.TestCase):
                 summary = inventory(store)
                 self.assertGreaterEqual(summary["source_derived_definitions"], 12)
                 self.assertGreaterEqual(summary["unique_topics"], 12)
+            finally:
+                store.close()
+
+    def test_question_title_grounds_exact_answer_without_invention(self):
+        self.assertEqual(title_question("What is a current? - NOAA"), "current")
+        self.assertEqual(title_question("What is an estuary?"), "estuary")
+        self.assertIsNone(title_question("NASA Science: Our Solar System"))
+        first = ("The term current describes the regular motion of ocean "
+                 "water around the planet as observed in scientific studies.")
+        second = ("Estuaries and their surrounding wetlands are bodies of "
+                  "water where fresh rivers mix with salty ocean water.")
+        self.assertEqual(title_evidence(first, "current"), first)
+        self.assertEqual(title_evidence(second, "estuary"), second)
+        self.assertIsNone(title_evidence(
+            "Our Sun is roughly midway through its main sequence stage.",
+            "sun"))
+        with tempfile.TemporaryDirectory() as root:
+            store = Store(root)
+            try:
+                filler = " ".join(
+                    "A scientific instrument collected measurements of "
+                    "seawater during a careful field experiment." for _ in range(90))
+                for topic, content in (("current", first), ("estuary", second)):
+                    url = "https://marine-science.example.org/facts/" + topic
+                    result = archive_page(
+                        store, url,
+                        "<html><title>What is " + topic + "?</title><body>" +
+                        content + filler + "</body></html>",
+                        content + " " + filler,
+                        title="What is " + topic + "?",
+                        declared_license="CC0-1.0",
+                        rights_url="fixture:self-authored")
+                    self.assertEqual(result["status"], "archived")
+                ans = grounded_answer(store, "What is a current?")
+                self.assertEqual(ans["answer"], first)
+                self.assertEqual(ans["sources"][0]["url"],
+                                 "https://marine-science.example.org/facts/current")
+                self.assertTrue(ans["sources"][0]["source_sha256"])
+                report = diagnose_corpus(store, question="current")
+                self.assertEqual(report["status"], "diagnosed")
+                self.assertEqual(report["topic"], "current")
+                self.assertEqual(len(report["source_reports"]), 2)
+                self.assertGreaterEqual(
+                    sum(x["extracted_definitions"]
+                        for x in report["source_reports"]), 2)
+                self.assertFalse(ans["neural_weights_updated"])
+            finally:
+                store.close()
+
+    def test_title_alone_does_not_create_answer_or_train(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = Store(root)
+            try:
+                page = ("Our Sun is roughly midway through its main sequence "
+                        "stage, and it changes gradually over time. ") * 20
+                archive_page(
+                    store, "https://science.example.org/sun",
+                    "<html><title>What is the Sun?</title>" + page + "</html>",
+                    page, title="What is the Sun?",
+                    declared_license="CC0-1.0", rights_url="fixture:self-authored")
+                self.assertEqual(grounded_answer(store, "sun")["status"],
+                                 "no_definition")
             finally:
                 store.close()
 

@@ -67,6 +67,8 @@ def main(argv=None):
     grounded = sub.add_parser("v120-ask", help="Answer a simple definition from an exact approved source quote (not neural generation)")
     grounded.add_argument("--question", required=True)
     sub.add_parser("v120-inventory", help="Count source-extracted definition candidates and neural ranker")
+    gap = sub.add_parser("v120-diagnose", help="Show which archived sources lack definition examples, including exact topic evidence nearby")
+    gap.add_argument("--question", default=None, help="Optional topic to inspect exact source passages, such as 'sun'")
     sub.add_parser("v120-readiness", help="Check host-held-out definition question ranking data")
     ranker = sub.add_parser("v120-train", help="Train independent PyTorch evidence ranker on source-derived definition pairs")
     ranker.add_argument("--steps", type=int, default=120)
@@ -412,6 +414,9 @@ def main(argv=None):
             elif args.command == "v120-readiness":
                 from .v120_grounded import readiness
                 result = readiness(store)
+            elif args.command == "v120-diagnose":
+                from .v120_grounded import diagnose_corpus
+                result = diagnose_corpus(store, args.question)
             elif args.command == "v120-train":
                 from .v120_grounded import train_ranker
                 result = train_ranker(store, settings, steps=args.steps, seed=args.seed)

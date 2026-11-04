@@ -1575,3 +1575,14 @@ python3 -m evolve studio --port 8787 --interval 60
 ```
 
 Full [v1.20 Grounded Q&A guide](docs/GROUNDED_QA_V120.md).
+
+
+### v1.20.1: Diagnose missing real QA definitions
+
+If `v120-readiness` says `needs_diverse_definitions`, run
+`python3 -m evolve v120-diagnose` to see **exactly which URLs/source
+hosts are missing usable examples**, or add
+`--question "What is the Sun?"` to inspect nearby literal passages.
+This version also recognizes publisher question titles plus exact
+on-topic definitional sentences, with source/rights checks unchanged.
+See [the QA corpus gap guide](docs/QA_GAPS_V1201.md).
