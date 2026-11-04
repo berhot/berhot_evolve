@@ -23,6 +23,17 @@ MATH_FORMAT = re.compile(
 OBJECTIVE = "arithmetic_answer_only_v1"
 
 
+def should_accept_math_checkpoint(initial_validation, candidate_validation,
+                                  minimum_improvement, previous_checkpoint=None,
+                                  best_step=1):
+    """Never accept a specialist solely because it is the first checkpoint."""
+    threshold = (previous_checkpoint if previous_checkpoint is not None
+                 else initial_validation)
+    return (best_step > 0 and math.isfinite(candidate_validation)
+            and math.isfinite(threshold)
+            and candidate_validation + max(0.0, float(minimum_improvement)) < threshold)
+
+
 def _parse(row, block):
     match = MATH_FORMAT.fullmatch(row["text"])
     if match is None:
@@ -178,8 +189,9 @@ def train_math_answerer(store, settings, skill="mixed", steps=400, force=False):
     after_train = _validation_loss(model, train, torch, device)
     after_val = _validation_loss(model, valid, torch, device)
     threshold = baseline if baseline is not None else before_val
-    accepted = (best_step > 0 and math.isfinite(after_val) and
-                after_val + min_delta < threshold)
+    accepted = should_accept_math_checkpoint(
+        before_val, after_val, min_delta, previous_checkpoint=baseline,
+        best_step=best_step)
     directory = store.root / "models" / "math"
     directory.mkdir(parents=True, exist_ok=True)
     name = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
