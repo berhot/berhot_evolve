@@ -1,0 +1,32 @@
+{
+  "project": "BERHOT EVOLVE MVP",
+  "version": "0.1.0",
+  "source_files": 25,
+  "checksums": {
+    ".gitignore": "6e31d1b969273277d0f6b35cdf8e19da6cd1962d23f43c22293dce6b9f552fc7",
+    "Dockerfile": "1535e679a971b615a07a5857514501383f93600b5d4ba6fe28c037374e759a2b",
+    "LICENSE": "6a214b8113793950e62f7c85f0f305a71fccec4e58fa3720aa2a505528dbd1c8",
+    "README.md": "239cacb4930ef173ce3585af51275ba09a00f42ca3b016684f54e3b748118830",
+    "compose.yaml": "a15567865bfc51757ee69d651991b0b8f5b32eb3985ee1aa6ab79f60b8169cae",
+    "config/settings.json": "7c6f3317d599762d0cb7772fc898905c830b18fcf34e43fefb594509f01504fe",
+    "docs/ARCHITECTURE.md": "ec3026c13ddf2c20c59bb4d0156a6ba80e3ecb8620d9c72c1a3d99d34399b6ad",
+    "docs/MULTIMODAL_ROADMAP.md": "9a7c1e6f02ab337360cc151206d07bd1302266ed706379d81852ab24ba2c6ba2",
+    "evolve/__init__.py": "e5d76bba8c18ad92af6518944eb3774ac00d71402be0dad71bd0c74ae039d6cd",
+    "evolve/__main__.py": "cf7390a2508a0fcad4777a4a629fc5212ab655cb45845975995f835676a834e3",
+    "evolve/brain.py": "c951a30c3811675dfaa343d48925e3367d6266a0b1f02eeecf7170b864b1916d",
+    "evolve/cli.py": "d0b6b653d0d2a5d61054b655260a0d39ab8d8076622a24102a5439438eadcc2f",
+    "evolve/connectors.py": "6b615c4a991185e7f364fb9bf0bb37164ff65ee5371b66063e96eb17a50b6867",
+    "evolve/curriculum.py": "c54945ea554064c6875cc847256d66340a5f56615402e4218e18e12fb6600208",
+    "evolve/discovery.py": "8462c0215d2c99de93d69bfebb79d09d4c24568bcbf84a1405d3ba872b7deb69",
+    "evolve/lab.py": "5b2f577612ede7fe0c017e958de04964ad2721e7384bf817d830920a1d81b2db",
+    "evolve/runtime.py": "d51f6a44a62680936ea7488289c2309d7904823540839ff40516a5a34a66c6da",
+    "evolve/settings.py": "6f6edccef523b174600e42b0a13ac667207eced9bf324bc1419d84be6482c020",
+    "evolve/store.py": "faebb4afe1e98a75bf19db30f2101442a504c973b4335ccab0fe17efe8ab531b",
+    "evolve/training.py": "da5e087dd1353f9823a6b071d8abd350524dbdc6215383821fe8632c9ded304b",
+    "pyproject.toml": "7d23f6e0d7bf13af8515c934997034f306ae6efe40a378cebab87a1ec405a683",
+    "tests/test_discovery.py": "4adfc29740a0c8594bab99c07110ee784fe9fe55d493b95ab1b90f3df95a6bcf",
+    "tests/test_end_to_end.py": "8adb92ab917c57a7486c410e1b16919e4c6ff52a8cadefbfc9aabcbe0808383d",
+    "tests/test_storage.py": "5f8bbc6c673d7e5dd1fa3a8365623df1193a7e3477f4a9962ebe2f3ea9e2ffd4",
+    "tests/test_training.py": "6adc83fed2e5f8ef1abd9b780a077b010fab5ca47ea714a7e7edafa13eb72da9"
+  }
+}

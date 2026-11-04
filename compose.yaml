@@ -1,0 +1,16 @@
+services:
+  evolve:
+    build: .
+    container_name: berhot-evolve-mvp
+    restart: unless-stopped
+    volumes:
+      - ./storage:/app/storage
+    # The research MVP needs no exposed ports, root-level browser automation,
+    # privileged mode, or access to the Docker socket.
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

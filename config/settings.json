@@ -1,0 +1,41 @@
+{
+  "storage_root": "storage",
+  "source": "seed_web",
+  "seed_entities": [],
+  "discovery_per_cycle": 8,
+  "frontier_max": 5000,
+  "max_linked_entities_per_source": 6,
+  "crawl_delay_seconds": 2.0,
+  "max_response_bytes": 2000000,
+  "daily_request_budget": 60,
+  "max_experiments_per_cycle": 12,
+  "minimum_training_documents": 6,
+  "minimum_new_documents_for_training": 6,
+  "model": {
+    "block_size": 64,
+    "embedding_dim": 64,
+    "heads": 4,
+    "layers": 2,
+    "dropout": 0.0
+  },
+  "train": {
+    "steps": 60,
+    "batch_size": 16,
+    "learning_rate": 0.0007,
+    "eval_batches": 6,
+    "seed": 42,
+    "device": "auto",
+    "max_seconds": 600,
+    "min_improvement": 0.001
+  },
+  "daemon": {
+    "poll_seconds": 3600
+  },
+  "web": {
+    "max_depth": 3,
+    "max_links_per_page": 4,
+    "new_concepts_per_page": 3,
+    "max_concepts_total": 60,
+    "concept_reviews_per_cycle": 5
+  }
+}
