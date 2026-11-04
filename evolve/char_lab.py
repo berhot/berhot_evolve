@@ -121,10 +121,10 @@ def _cfg(settings, tokenizer, context=128, embedding_dim=64, layers=2, heads=4):
     heads = int(heads)
     if not 64 <= context <= 256:
         raise ValueError("context must be 64..256 Unicode characters")
-    if not 16 <= embedding_dim <= 128 or embedding_dim % heads:
-        raise ValueError("embedding_dim must be 16..128 and divisible by heads")
     if not 1 <= layers <= 4 or not 1 <= heads <= 8:
         raise ValueError("layers must be 1..4, heads 1..8")
+    if not 16 <= embedding_dim <= 128 or embedding_dim % heads:
+        raise ValueError("embedding_dim must be 16..128 and divisible by heads")
     return {
         "block_size": context, "embedding_dim": embedding_dim,
         "heads": heads, "layers": layers, "dropout": 0.0,
@@ -220,6 +220,12 @@ def train_char_lab(store, settings, steps=400, seed=31415, device="cpu",
     steps = int(steps)
     if not 1 <= steps <= 5000:
         raise ValueError("steps must be 1..5000")
+    # Snapshot the existing GENERAL model; this separate lab must never
+    # mutate it. Do not confuse a newly trained Unicode model with old ones.
+    existing_main = store.latest_promoted()
+    main_sha_before = (
+        sha256_file(existing_main["path"]) if
+        existing_main and Path(existing_main["path"]).is_file() else None)
     frozen = freeze_dataset(store, include_unknown, diagnostic)
     if frozen["status"] != "frozen":
         return frozen
@@ -304,6 +310,11 @@ def train_char_lab(store, settings, steps=400, seed=31415, device="cpu",
     sha = sha256_file(checkpoint)
     # Withheld test is scored AFTER the choice to accept or reject.
     test_after = _eval(model, ids["test"], cfg, chosen, seed=398)
+    main_sha_after = (
+        sha256_file(existing_main["path"]) if
+        existing_main and Path(existing_main["path"]).is_file() else None)
+    if main_sha_before != main_sha_after:
+        raise ValueError("Existing general model checkpoint changed during char lab")
     report = {
         "status": "trained", "objective": FORMAT,
         "checkpoint": str(checkpoint), "sha256": sha,
@@ -334,7 +345,10 @@ def train_char_lab(store, settings, steps=400, seed=31415, device="cpu",
         "beats_unigram_on_validation": val_after < base_val,
         "beats_unigram_on_test": test_after < base_test,
         "test_used_for_selection": False,
-        "previous_main_and_arithmetic_models_changed": False,
+        "existing_general_checkpoint_unchanged": (
+            main_sha_before == main_sha_after
+            if main_sha_before is not None else "no_existing_general_checkpoint"),
+        "existing_arithmetic_checkpoints_modified": "not_accessed_by_char_lab",
         "note": (
             "Cross-entropy is measured per Unicode character, not per "
             "byte. Do NOT directly compare this number with v1.14 byte "
@@ -347,11 +361,8 @@ def train_char_lab(store, settings, steps=400, seed=31415, device="cpu",
             "Source-host holdout: not a factual QA benchmark."
         ),
     }
-    # Do not claim old checkpoints unchanged without checking:
-    old_main = store.latest_promoted()
-    if old_main and Path(old_main["path"]).is_file():
-        # No writes have occurred to this path during training.
-        report["existing_main_checkpoint_sha256"] = sha256_file(old_main["path"])
+    if main_sha_after is not None:
+        report["existing_main_checkpoint_sha256"] = main_sha_after
     store.put("char_lab_latest_candidate", report)
     if accepted:
         store.put("char_lab_latest", report)
