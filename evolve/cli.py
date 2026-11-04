@@ -85,6 +85,7 @@ def main(argv=None):
     sub.add_parser("v121-report", help="Compact last-cycle scientific learning report and next source-host requirements")
     qualifier = sub.add_parser("v122-evidence", help="Read-only rights and QA-evidence host qualification report; never admits training data")
     qualifier.add_argument("--limit", type=int, default=80)
+    qualifier.add_argument("--host", default=None, help="Inspect one publisher host, e.g. oceanservice.noaa.gov")
     studio = sub.add_parser("studio", help="Launch local live web dashboard with chat and controlled learning")
     studio.add_argument("--port", type=int, default=8787)
     studio.add_argument("--interval", type=int, default=3600,
@@ -434,7 +435,8 @@ def main(argv=None):
                 result = learning_report(store)
             elif args.command == "v122-evidence":
                 from .v122_evidence import evidence_report
-                result = evidence_report(store, limit=args.limit)
+                result = evidence_report(store, limit=args.limit,
+                                         host=args.host)
             elif args.command == "v120-ask":
                 from .v120_grounded import grounded_answer
                 result = grounded_answer(store, args.question)
