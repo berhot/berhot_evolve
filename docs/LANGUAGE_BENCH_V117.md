@@ -172,8 +172,8 @@ Three examples to **inspect first** (not a verified training dataset):
   https://www.usgs.gov/programs/VHP/about-volcanoes
   USGS authorship and public domain:
   https://www.usgs.gov/faqs/are-usgs-reportspublications-copyrighted
-- NOAA National Ocean Service educational tides tutorial:
-  https://oceanservice.noaa.gov/education/tutorial_tides/tides02_cause.html
+- NOAA National Ocean Service educational coral-growth tutorial:
+  https://oceanservice.noaa.gov/education/tutorial_corals/coral03_growth.html
   NOAA educational material policy:
   https://www.noaa.gov/office-education/outreach-communication/faq
 
@@ -189,7 +189,7 @@ First queue/crawl:
 python3 -m evolve corpus-seed --urls \
   https://science.nasa.gov/universe/stars/ \
   https://www.usgs.gov/programs/VHP/about-volcanoes \
-  https://oceanservice.noaa.gov/education/tutorial_tides/tides02_cause.html
+  https://oceanservice.noaa.gov/education/tutorial_corals/coral03_growth.html
 python3 -m evolve corpus-crawl --limit 12
 python3 -m evolve v117-sources
 ```
