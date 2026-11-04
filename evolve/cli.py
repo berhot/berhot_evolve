@@ -51,6 +51,12 @@ def main(argv=None):
     math_parser.add_argument("--skill", choices=["mixed", "single-digit-add"], default="mixed")
     math_parser.add_argument("--steps", type=int, default=400)
     math_parser.add_argument("--force", action="store_true", help="Train longer without new arithmetic examples")
+    numeric_parser = sub.add_parser("numeric-lab", help="Train/test a separate structured digit-addition neural baseline")
+    numeric_parser.add_argument("--steps", type=int, default=400)
+    numeric_parser.add_argument("--seed", type=int, default=42)
+    numeric_predict_parser = sub.add_parser("numeric-predict", help="Predict two digits using learned numeric-lab parameters")
+    numeric_predict_parser.add_argument("--a", type=int, required=True)
+    numeric_predict_parser.add_argument("--b", type=int, required=True)
     assess_parser = sub.add_parser("assess", help="Measure raw numeric formatting and exact answers on unseen arithmetic")
     assess_parser.add_argument("--questions", type=int, default=10)
     assess_parser.add_argument("--seed", type=int, default=90210)
@@ -119,6 +125,12 @@ def main(argv=None):
                 from .answer_training import train_math_answerer
                 result = train_math_answerer(store, settings, skill=args.skill,
                                              steps=args.steps, force=args.force)
+            elif args.command == "numeric-lab":
+                from .numeric_lab import run_numeric_lab
+                result = run_numeric_lab(store, settings, steps=args.steps, seed=args.seed)
+            elif args.command == "numeric-predict":
+                from .numeric_lab import predict_numeric_lab
+                result = predict_numeric_lab(store, args.a, args.b)
             elif args.command == "assess":
                 from .evaluation import evaluate_arithmetic
                 result = evaluate_arithmetic(store, settings, questions=args.questions,
