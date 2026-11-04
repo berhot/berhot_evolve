@@ -64,6 +64,8 @@ def main(argv=None):
     rule_predict_parser = sub.add_parser("rule-predict", help="Predict with saved generic neural arithmetic classifier")
     rule_predict_parser.add_argument("--a", type=int, required=True)
     rule_predict_parser.add_argument("--b", type=int, required=True)
+    rule_predict_parser.add_argument("--candidate", action="store_true",
+                                     help="Inspect latest candidate even if validation rejected it")
     assess_parser = sub.add_parser("assess", help="Measure raw numeric formatting and exact answers on unseen arithmetic")
     assess_parser.add_argument("--questions", type=int, default=10)
     assess_parser.add_argument("--seed", type=int, default=90210)
@@ -144,7 +146,7 @@ def main(argv=None):
                                       seed=args.seed, hidden=args.hidden)
             elif args.command == "rule-predict":
                 from .rule_lab import predict_rule_lab
-                result = predict_rule_lab(store, args.a, args.b)
+                result = predict_rule_lab(store, args.a, args.b, use_candidate=args.candidate)
             elif args.command == "assess":
                 from .evaluation import evaluate_arithmetic
                 result = evaluate_arithmetic(store, settings, questions=args.questions,
