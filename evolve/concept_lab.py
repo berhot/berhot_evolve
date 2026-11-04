@@ -479,3 +479,34 @@ def train_concept_lab(store, settings, steps=300, seed=31415, max_concepts=8,
                           if k != "examples"},
     })
     return report
+
+
+def evaluate_concept_lab(store, candidate=False, max_new_bytes=128):
+    """Read-only post-restart evaluation; never updates or selects checkpoint."""
+    if not 16 <= int(max_new_bytes) <= 192:
+        raise ValueError("max_new_bytes must be 16..192")
+    loaded = _load_model(store, candidate=candidate)
+    if loaded is None:
+        return {"status": "skipped", "reason": "No matching saved concept checkpoint"}
+    model, ref = loaded
+    all_items = _inventory(store, max_concepts=32)
+    lookup = {record["concept"]: record for record in all_items}
+    if any(concept not in lookup for concept in ref["concepts"]):
+        return {
+            "status": "skipped",
+            "reason": "Some originally admitted definitions are no longer available",
+        }
+    items = [lookup[concept] for concept in ref["concepts"]]
+    if _dataset_digest(items) != ref["dataset_sha256"]:
+        return {"status": "skipped",
+                "reason": "Verification records no longer match original dataset hash"}
+    scores = _evaluate(model, items, ref["model_config"], "cpu",
+                       int(max_new_bytes))
+    return {
+        "status": "evaluated", "experiment": FORMAT,
+        "checkpoint": ref["sha256"],
+        "checkpoint_status": "accepted" if ref["accepted"] else "unaccepted_candidate",
+        "rights_verified_currently": True,
+        "evaluation": scores,
+        "note": "Neural completions only; database used for ground-truth scoring, never inference.",
+    }
