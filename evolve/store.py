@@ -170,6 +170,14 @@ class Store:
         self.db.execute('UPDATE concept_tasks SET status=? WHERE term=?',(status,term))
         self.db.commit()
 
+    def recent_web_errors(self, limit=10):
+        """Return recorded crawl failures without exposing scraped page contents."""
+        limit = max(1, min(int(limit), 100))
+        return [dict(row) for row in self.db.execute(
+            "SELECT url, depth, attempts, last_error "
+            "FROM web_frontier WHERE status='error' "
+            "ORDER BY rowid DESC LIMIT ?", (limit,))]
+
     def pending_concepts(self):
         return self.db.execute("SELECT COUNT(*) FROM concept_tasks WHERE status='pending'").fetchone()[0]
 
@@ -287,6 +295,7 @@ class Store:
             "verified_experiences": self.db.execute("SELECT COUNT(*) FROM experiences WHERE success=1").fetchone()[0],
             "web_pending_urls": self.db.execute("SELECT COUNT(*) FROM web_frontier WHERE status='pending'").fetchone()[0],
             "web_completed_urls": self.db.execute("SELECT COUNT(*) FROM web_frontier WHERE status='done'").fetchone()[0],
+            "web_error_urls": self.db.execute("SELECT COUNT(*) FROM web_frontier WHERE status='error'").fetchone()[0],
             "concepts_pending": self.pending_concepts(),
             "concepts_discovered": self.db.execute("SELECT COUNT(*) FROM concept_tasks").fetchone()[0],
             "latest_promoted_model": dict(self.latest_promoted()) if self.latest_promoted() else None,
