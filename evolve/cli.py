@@ -56,6 +56,28 @@ def main(argv=None):
     web_freeze = sub.add_parser("web-freeze", help="Build SHA256-frozen article train/val/test byte shards; no neural training")
     web_freeze.add_argument("--include-unknown-rights", action="store_true")
     web_freeze.add_argument("--diagnostic-within-document", action="store_true")
+    char_lab = sub.add_parser("char-lab", help="Train BERHOT Unicode character tokenizer + separate 128-context Transformer, optionally resume accepted weights")
+    char_lab.add_argument("--steps", type=int, default=400)
+    char_lab.add_argument("--seed", type=int, default=31415)
+    char_lab.add_argument("--device", choices=["cpu", "mps", "cuda", "auto"], default="cpu")
+    char_lab.add_argument("--include-unknown-rights", action="store_true")
+    char_lab.add_argument("--diagnostic-within-document", action="store_true")
+    char_lab.add_argument("--resume", action="store_true", help="Continue accepted Unicode checkpoint if same frozen data and model config")
+    char_lab.add_argument("--context", type=int, default=128)
+    char_lab.add_argument("--embedding-dim", type=int, default=64)
+    char_lab.add_argument("--layers", type=int, default=2)
+    char_lab.add_argument("--heads", type=int, default=4)
+    char_lab.add_argument("--vocab-limit", type=int, default=512)
+    char_eval = sub.add_parser("char-evaluate", help="Verify saved Unicode weights/tokenizer/frozen dataset then reevaluate without gradients")
+    char_eval.add_argument("--accepted", action="store_true")
+    char_predict = sub.add_parser("char-predict", help="Sample Unicode characters from trained model weights, no source lookup")
+    char_predict.add_argument("--prompt", required=True)
+    char_predict.add_argument("--new-chars", type=int, default=100)
+    char_predict.add_argument("--temperature", type=float, default=0.85)
+    char_predict.add_argument("--seed", type=int, default=42)
+    char_predict.add_argument("--top-k", type=int, default=30)
+    char_predict.add_argument("--greedy", action="store_true")
+    char_predict.add_argument("--accepted", action="store_true")
     web_lab = sub.add_parser("web-lab", help="One-shot frozen web corpus to trained neural checkpoint + heldout evaluation")
     web_lab.add_argument("--steps", type=int, default=60)
     web_lab.add_argument("--seed", type=int, default=31415)
@@ -321,6 +343,27 @@ def main(argv=None):
                 from .web_lab import freeze_dataset
                 result = freeze_dataset(store, include_unknown=args.include_unknown_rights,
                                         diagnostic=args.diagnostic_within_document)
+            elif args.command == "char-lab":
+                from .char_lab import train_char_lab
+                result = train_char_lab(
+                    store, settings, steps=args.steps, seed=args.seed,
+                    device=args.device,
+                    include_unknown=args.include_unknown_rights,
+                    diagnostic=args.diagnostic_within_document,
+                    resume=args.resume, context=args.context,
+                    embedding_dim=args.embedding_dim,
+                    layers=args.layers, heads=args.heads,
+                    vocab_limit=args.vocab_limit)
+            elif args.command == "char-evaluate":
+                from .char_lab import evaluate_char_lab
+                result = evaluate_char_lab(store, candidate=not args.accepted)
+            elif args.command == "char-predict":
+                from .char_lab import predict_char_lab
+                result = predict_char_lab(
+                    store, args.prompt, candidate=not args.accepted,
+                    new_chars=args.new_chars,
+                    temperature=args.temperature, seed=args.seed,
+                    top_k=args.top_k, greedy=args.greedy)
             elif args.command == "web-lab":
                 from .web_lab import train_web_lab
                 result = train_web_lab(store, settings, steps=args.steps,

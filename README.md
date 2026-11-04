@@ -1,3 +1,49 @@
+# BERHOT EVOLVE v1.15 — Original Unicode Tokenizer, Resumable Neural Experiment
+
+The real 400-step Energy model outperformed a training-only byte
+unigram baseline, but greedy output still looped through fragments
+and byte sampling generated invalid UTF-8. v1.15 adds a fully
+BERHOT-authored **Unicode character tokenizer** and a SEPARATE longer
+context neural experiment, with safe character-level generation and
+resume-from-accepted checkpoint support. The Transformer still uses PyTorch.
+
+```bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+
+# One-shot Unicode-char training on frozen Energy article:
+python3 -m evolve char-lab --steps 400 --seed 31415 --device cpu \
+  --include-unknown-rights --diagnostic-within-document
+
+# Validate hashes and independently repeat heldout CHAR loss:
+python3 -m evolve char-evaluate
+
+# Test actual generated Unicode text, NOT database retrieval:
+python3 -m evolve char-predict --prompt 'Energy is' --new-chars 100 \
+  --temperature 0.85 --top-k 30 --seed 42
+
+# Continue accepted weights instead of restarting:
+python3 -m evolve char-lab --resume --steps 400 --seed 31415 \
+  --device cpu --include-unknown-rights --diagnostic-within-document
+
+python3 -m evolve model-audit
+```
+
+Train/validation/test data remain derived from the same Energy article;
+this is an explicitly labeled diagnostic, **not independent source
+generalization or verified knowledge**. Character cross-entropy cannot
+be directly compared with v1.14's byte cross-entropy; both experiments
+should be compared to their own train-only frequency baselines.
+
+The character tokenizer and persistence logic use the Python standard
+library; **PyTorch is still used for tensors, autograd, and optimization**.
+Existing general, numeric, and web-byte checkpoints are not overwritten.
+Unknown-rights data requires explicit opt-in and no-AI signals remain
+excluded from experimental model training.
+
+See docs/UNICODE_CHAR_LAB_V115.md for technical details.
+
+## Previous version — v1.14
 # BERHOT EVOLVE v1.14 — Measure Web-Language Learning vs Byte Frequency
 
 The user's 80-step Energy-article experiment reduced next-byte loss but
