@@ -78,9 +78,13 @@ def run_numeric_lab(store, settings, steps=400, seed=42):
         for split, pairs in partitions.items()
     }
     model = _build_model().to(device)
+    initial_weights = {
+        key: value.detach().cpu().clone()
+        for key, value in model.state_dict().items()
+    }
     before = {
         name: _metrics(model, tensors[name], torch)
-        for name in ("train", "validation", "test")
+        for name in ("train", "validation")
     }
     optimizer = torch.optim.Adam(model.parameters(), lr=0.06)
     train_a, train_b, train_y = tensors["train"]
@@ -119,7 +123,11 @@ def run_numeric_lab(store, settings, steps=400, seed=42):
                       for k, v in model.state_dict().items()}
         best_step = actual_steps
     model.load_state_dict(best_state)
-    # Test is consulted only after validation has selected the candidate.
+    # The held-out test is evaluated only after validation selected the model.
+    # Record a comparable pre-training test baseline without using it for selection.
+    initial_model = _build_model().to(device)
+    initial_model.load_state_dict(initial_weights)
+    before["test"] = _metrics(initial_model, tensors["test"], torch)
     after = {
         name: _metrics(model, tensors[name], torch)
         for name in ("train", "validation", "test")
