@@ -1,3 +1,53 @@
+# BERHOT EVOLVE v1.11 — Targeted Research & Offline Source Planning
+
+## Why this change
+
+Your Mac reported 10 open supported definition questions and 20 unsupported
+questions, with 0 verified text training documents. Offline source planning
+showed two candidate publisher groups for every concept. However, only
+**energy** had already yielded a definition from one publisher in a previous
+run; the remaining candidates have not been corroborated or rights checked.
+Research queue order would spend limited requests on English before energy.
+
+## Exact-concept research, without bypassing safeguards
+
+````bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+
+# No network calls, no quota usage and no DB writes:
+python3 -m evolve research-plan --concept energy
+python3 -m evolve research-health
+
+# Only when health reports remaining quota and cooldown eligibility:
+python3 -m evolve research --concept energy --limit 1
+python3 -m evolve concept-inventory
+````
+
+`research-plan` prints real candidate URLs in the existing queue, publisher
+group hints, which URLs fall inside the configured per-question window,
+and whether each URL was previously observed. It **does not download** any
+page, verify rights, or claim independent corroboration.
+
+`research --concept energy` performs the existing bounded research process
+only on an open, cooldown-eligible `What is energy?` question. It does not
+prioritize or alter other questions, expand the total request budget, change
+robots restrictions, or loosen the requirement for two independently
+agreeing sources and at least one recognized CC0/public-domain page.
+
+Since the shared UTC daily quota was 60/60 on November 4, 2026, the next
+automatic reset was 2026-11-05T00:00:00Z (03:00 Saudi time). The default
+retry cooldown separately applied until about 20:52 Saudi time on November 4.
+Do not retry while blocked.
+
+## Honest experimental boundary
+
+Two candidate publisher groups are not two verified definitions. The
+per-page license, text extraction, agreement and actual training admission
+must still succeed. Even if one definition is verified, v1.9 needs at
+least two admitted *train-split* definitions before training.
+
+## Previous version — v1.10
 # BERHOT EVOLVE v1.10 — Research Budget & Cooldown Diagnostics
 
 ## Why your Mac returned zero attempts
