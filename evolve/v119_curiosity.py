@@ -135,6 +135,8 @@ def smart_lookup(store, question):
                 "warning": "An exact passage from previously rights-approved saved text. No neural weights changed.",
             }
     saved = cached(store, question)
+    if saved and saved["status"] == "unresolved" and time.time() >= saved.get("retry_after_epoch", float("inf")):
+        saved = None
     if saved:
         if saved["status"] == "researched":
             return {
@@ -177,6 +179,8 @@ def research(store, settings, question, fetcher=None, progress=None,
     if topic is None:
         return {"status": "unsupported_question", "question": str(question)[:180]}
     previous = cached(store, topic)
+    if previous and previous["status"] == "unresolved" and time.time() >= previous.get("retry_after_epoch", float("inf")):
+        previous = None
     if previous:
         return {
             "status": "cached_" + previous["status"],
@@ -277,6 +281,8 @@ def sentence_lessons(store, per_host=18, max_sources=150):
         (int(max_sources),)).fetchall()
     old = store.get("v119_auto_lessons", []) or []
     seen = {x["fingerprint"] for x in old}
+    # Detect duplicated literal answers even across independent publishers.
+    seen_sentences = {x.get("source_sentence_sha256") for x in old}
     # Per-host cap keeps one publisher from dominating the generated curriculum.
     host_counts = {}
     for item in old:
@@ -306,9 +312,14 @@ def sentence_lessons(store, per_host=18, max_sources=150):
             q = "Continue: " + leading
             if not 15 <= len(tail) <= 180:
                 continue
+            sentence_sha = _sha(s.casefold().encode("utf-8"))
+            if sentence_sha in seen_sentences:
+                continue
             item = {
                 "question": q, "answer": tail, "url": url, "host": host,
-                "source_sha256": source["sha256"], "created_at_utc": _utc(),
+                "source_sha256": source["sha256"],
+                "source_sentence_sha256": sentence_sha,
+                "created_at_utc": _utc(),
                 "source_provenance": "auto_exact_source_continuation_not_verified_qa",
             }
             if _qa_xy(item, 256) is None:
@@ -318,6 +329,7 @@ def sentence_lessons(store, per_host=18, max_sources=150):
             if item["fingerprint"] in seen:
                 continue
             seen.add(item["fingerprint"])
+            seen_sentences.add(sentence_sha)
             new.append(item)
             host_counts[host] = host_counts.get(host, 0) + 1
             if host_counts[host] >= per_host:
