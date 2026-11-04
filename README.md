@@ -1,3 +1,69 @@
+# BERHOT EVOLVE v1.7 — Frozen Bilinear Feature Calibration
+
+## What was established by the user's v1.6 Mac runs
+
+The degree-2 polynomial reference scored 100% exact-match accuracy for
+addition, subtraction and multiplication on all reported held-out groups,
+including operands 500..999, for all three saved seeds (31415, 42, 1001).
+In contrast, the earlier v1.5 bilinear network failed many large-number
+tests. This proves the *provided basis* is expressive and fitted precisely,
+not that a model autonomously discovered arithmetic.
+
+## Controlled v1.7 question
+
+Can we repair the ORIGINAL v1.5 model by keeping both learned bilinear
+hidden operand projections completely frozen, and refitting ONLY its
+operator-conditioned output head to the original training data?
+
+Yes, this is a separate proposed experiment. A newly trained v1.7 candidate
+is never silently substituted for your saved v1.5 model.
+
+The procedure is precise:
+
+1. Verify the original SHA-256 fingerprint of the saved v1.5 checkpoint.
+2. Copy its left and right hidden projections into the exact same architecture
+   in **float64** rather than the old float32 arithmetic.
+3. Freeze hidden projections; collect their learned bilinear activations
+   from the original 35 unordered training pair groups, including both
+   operand orientations and all three supervised operations.
+4. Fit each output head using float64 least squares on **training labels**.
+   No explicit [1,x,y,xy] basis or target mathematical coefficients are
+   supplied. The original v1.5 interaction prior is retained.
+5. Select accepted/rejected based only on disjoint validation MAE.
+6. AFTER that, measure held-out and OOD accuracy, side by side with the
+   unchanged v1.5 checkpoint on the same problems.
+
+### Run on Mac (zsh)
+
+```bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+
+# Calibrate the original saved v1.5 model for one seed:
+python3 -m evolve calibration-lab --seed 31415 --count 20
+
+# Predict from new saved calibration without touching original weights:
+python3 -m evolve calibration-predict --a 999 --b 998 --operator '*' --seed 31415
+
+# All three original seeds, report failures as well as successes:
+python3 -m evolve calibration-study --seeds 31415 42 1001 --count 20
+
+python3 -m unittest discover -s tests -v
+```
+
+Each trial stores a separately SHA-256-verified checkpoint under
+`storage/models/calibration_lab/` and tracks its v1.5 source fingerprint.
+No neural gradient training occurs in this step. All training examples
+remain from 0..9, and test/OOD labels are consulted only after fitting
+and validation-based acceptance are decided.
+
+**Caveat:** The original bilinear interaction already contains a strong
+multiplication prior. An accurate calibrated model would demonstrate that
+better head fitting and float64 precision fix v1.5's parameter error in
+this finite supervised task, NOT that the general EVOLVE language model
+can reason, learn from the web, or invent arithmetic.
+
+## Previous version — v1.6
 # BERHOT EVOLVE v1.6 — Audit Learned Coefficients vs Polynomial Basis
 
 ## Actual Mac result from v1.5
