@@ -36,6 +36,7 @@ def main(argv=None):
     question_parser.add_argument("--limit", type=int, default=20)
     answer_parser = sub.add_parser("answers", help="Show corroborated answers with independent source proofs")
     answer_parser.add_argument("--limit", type=int, default=20)
+    sub.add_parser("research-health", help="Read-only UTC quota, supported question cooldown and eligible evidence diagnostics")
     research_parser = sub.add_parser("research", help="Seek independent evidence for open questions")
     research_parser.add_argument("--limit", type=int, default=5)
     learn_parser = sub.add_parser("learn", help="Research and train only on verified eligible answers")
@@ -252,6 +253,9 @@ def main(argv=None):
                 result = {"questions": store.list_research_questions(args.limit)}
             elif args.command == "answers":
                 result = {"answers": store.list_verified_answers(args.limit)}
+            elif args.command == "research-health":
+                from .research_diagnostics import research_health
+                result = research_health(store, settings)
             elif args.command == "research":
                 from .research import research_questions
                 result = research_questions(store, settings, limit=args.limit)
