@@ -32,7 +32,7 @@ _BAD_TOPIC = {
     "scientists", "researchers", "article", "information",
 }
 _PREDICATE = re.compile(
-    r"^(?:an?\s+|the\s+|[A-Z][a-z]+(?:\x27s)?\s+|one\s+of\s+|part\s+of\s+|"
+    r"^(?:an?\s+|the\s+|one\s+of\s+|part\s+of\s+|"
     r"made\s+of\s+|composed\s+of\s+|formed\s+from\s+|"
     r"located\s+|known\s+as\s+|called\s+|"
     r"a\s+type\s+of\s+|the\s+name\s+of\s+)", re.I
@@ -87,7 +87,12 @@ def extract_definition(sentence):
     if topic in _BAD_TOPIC or any(w.casefold() in _BAD_TOPIC for w in topic.split()):
         return None
     predicate = match["predicate"].strip()
-    if match["verb"].casefold() in ("is", "are") and not _PREDICATE.match(predicate):
+    # Don't interpret an arbitrary adverb ("roughly", "sometimes") as
+    # a noun definition. Explicit capitalized possessives such as
+    # "Earth's natural satellite" are allowed, case-sensitively.
+    defining_predicate = (_PREDICATE.match(predicate) is not None or
+                          re.match(r"^[A-Z][a-z]+'s\\s+", predicate) is not None)
+    if match["verb"].casefold() in ("is", "are") and not defining_predicate:
         return None
     # Don't turn arbitrary text/navigation into supposed scientific claims.
     if len(set(re.findall(r"[a-z]{3,}", predicate.casefold()))) < 5:
