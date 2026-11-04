@@ -1,3 +1,49 @@
+# BERHOT EVOLVE v1.16 — Stateful Resume & 400-to-800 Comparison
+
+The user's Energy article character model was trained 400 steps, then
+resumed 400 more (800 recorded), with lower train/validation losses.
+However, v1.15's resume restored only model weights; it RESET AdamW
+optimizer moments and the Python batch-sampling sequence.
+
+v1.16 checkpoints now persist and restore **optimizer state, Python
+sampler RNG state, and CPU torch RNG state**. On CPU, tests compare
+15+15 resumed updates against 30 uninterrupted updates for identical
+weights. Older v1.15 checkpoints remain readable and resumable, but
+are transparently flagged `legacy_weights_only`, not exact continuation.
+
+```bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+
+# Compare your prior 400-step checkpoint to the latest 800-step model
+# Using identical frozen data, heldout windows and generation seeds:
+python3 -m evolve char-compare \
+  --reference-sha256 ca1902a0ddaa907cea23bd6b4a22402a02580fe8c82e77e57b72bc44b4e2574a \
+  --prompt 'Energy is' --new-chars 100 --temperature 0.85 --top-k 30 --seed 42
+
+# Generate directly from the latest 800-step checkpoint:
+python3 -m evolve char-predict \
+  --prompt 'Energy is' --new-chars 100 --top-k 30 --seed 42
+
+# Continue 800->1200: because the existing 800-step model was created
+# by v1.15, the first v1.16 resume reports legacy_weights_only.
+# Its NEW checkpoint will include optimizer+RNG state for future exact resumes.
+python3 -m evolve char-lab --resume --steps 400 --seed 31415 \
+  --device cpu --include-unknown-rights --diagnostic-within-document
+python3 -m evolve model-audit
+```
+
+All old and new Unicode checkpoints are separate files under
+`storage/models/char_lab`; `char-compare` checks both SHA256 digests,
+tokenizer, model architecture and dataset identity and does NOT train.
+Comparison test scores do not prove independent generalization because
+the source is still one Energy article.
+
+PyTorch remains the neural backend; this release doesn't claim fluent
+English, independent reasoning, external-data rights or a proprietary
+neural tensor framework.
+
+## Previous version — v1.15
 # BERHOT EVOLVE v1.15 — Original Unicode Tokenizer, Resumable Neural Experiment
 
 The real 400-step Energy model outperformed a training-only byte
