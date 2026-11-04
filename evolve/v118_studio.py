@@ -79,10 +79,11 @@ class LearningController:
                 "SELECT COUNT(*) FROM web_frontier WHERE status='pending'"
             ).fetchone()[0]
             qa_examples = store.get("v118_qa_examples", []) or []
+            auto_lessons = store.get("v119_auto_lessons", []) or []
             v117 = store.get("v117_latest")
             qa_model = store.get("v118_qa_latest")
-            qa_plan = qa_readiness(store) if qa_examples else {
-                "status": "needs_reviewed_examples"}
+            qa_plan = qa_readiness(store) if (qa_examples or auto_lessons) else {
+                "status": "needs_source_grounded_examples"}
             job = store.get("v118_last_job")
             history = store.get("v118_job_history", []) or []
             curiosity = curiosity_inventory(store)
