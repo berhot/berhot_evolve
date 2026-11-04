@@ -68,6 +68,16 @@ def main(argv=None):
     web_predict.add_argument("--prompt", required=True)
     web_predict.add_argument("--new-bytes", type=int, default=120)
     web_predict.add_argument("--accepted", action="store_true")
+    web_predict.add_argument("--decoding", choices=["greedy", "sample"],
+                             default="greedy")
+    web_predict.add_argument("--temperature", type=float, default=0.9)
+    web_predict.add_argument("--seed", type=int, default=42)
+    web_diagnose = sub.add_parser("web-diagnose", help="Compare SHA-verified web model to train-only byte unigram and detect generation collapse")
+    web_diagnose.add_argument("--accepted", action="store_true")
+    web_diagnose.add_argument("--prompt", default="Energy is")
+    web_diagnose.add_argument("--new-bytes", type=int, default=80)
+    web_diagnose.add_argument("--temperature", type=float, default=0.9)
+    web_diagnose.add_argument("--seed", type=int, default=42)
     learn_parser = sub.add_parser("learn", help="Research and train only on verified eligible answers")
     learn_parser.add_argument("--limit", type=int, default=10)
     learn_parser.add_argument("--force", action="store_true", help="Ignore new verified example threshold")
@@ -322,8 +332,16 @@ def main(argv=None):
                 result = evaluate_web_lab(store, candidate=not args.accepted)
             elif args.command == "web-predict":
                 from .web_lab import predict_web_lab
-                result = predict_web_lab(store, args.prompt, candidate=not args.accepted,
-                                         max_new_bytes=args.new_bytes)
+                result = predict_web_lab(
+                    store, args.prompt, candidate=not args.accepted,
+                    max_new_bytes=args.new_bytes, decoding=args.decoding,
+                    temperature=args.temperature, seed=args.seed)
+            elif args.command == "web-diagnose":
+                from .web_diagnostics import diagnose_web_lab
+                result = diagnose_web_lab(
+                    store, candidate=not args.accepted,
+                    prompt=args.prompt, max_new_bytes=args.new_bytes,
+                    temperature=args.temperature, seed=args.seed)
             elif args.command == "learn":
                 from .research import research_questions
                 from .training import train_candidate
