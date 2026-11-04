@@ -168,6 +168,25 @@ def main(argv=None):
     calibration_predict.add_argument("--b", type=int, required=True)
     calibration_predict.add_argument("--operator", choices=["+", "-", "*"], required=True)
     calibration_predict.add_argument("--seed", type=int, default=31415)
+    gradient = sub.add_parser("gradient-lab", help="Train ONLY saved v1.5 output head by Adam or SGD")
+    gradient.add_argument("--seed", type=int, default=31415)
+    gradient.add_argument("--optimizer", choices=["adam", "sgd"], default="adam")
+    gradient.add_argument("--steps", type=int, default=2000)
+    gradient.add_argument("--learning-rate", type=float, default=None)
+    gradient.add_argument("--count", type=int, default=20)
+    gradient.add_argument("--probe-seed", type=int, default=20261104)
+    gradient_study = sub.add_parser("gradient-study", help="Predeclared Adam and SGD comparisons across saved v1.5 seeds")
+    gradient_study.add_argument("--seeds", nargs="+", type=int, default=[31415, 42, 1001])
+    gradient_study.add_argument("--optimizers", nargs="+", choices=["adam", "sgd"], default=["adam", "sgd"])
+    gradient_study.add_argument("--steps", type=int, default=2000)
+    gradient_study.add_argument("--count", type=int, default=20)
+    gradient_study.add_argument("--probe-seed", type=int, default=20261104)
+    gradient_predict = sub.add_parser("gradient-predict", help="Predict from saved Adam or SGD calibrated head")
+    gradient_predict.add_argument("--a", type=int, required=True)
+    gradient_predict.add_argument("--b", type=int, required=True)
+    gradient_predict.add_argument("--operator", choices=["+", "-", "*"], required=True)
+    gradient_predict.add_argument("--seed", type=int, default=31415)
+    gradient_predict.add_argument("--optimizer", choices=["adam", "sgd"], default="adam")
     rule_predict_parser.add_argument("--candidate", action="store_true",
                                      help="Inspect latest candidate even if validation rejected it")
     assess_parser = sub.add_parser("assess", help="Measure raw numeric formatting and exact answers on unseen arithmetic")
@@ -340,6 +359,21 @@ def main(argv=None):
                 from .calibration_lab import predict_calibration_lab
                 result = predict_calibration_lab(store, a=args.a, b=args.b,
                     operator=args.operator, seed=args.seed)
+            elif args.command == "gradient-lab":
+                from .gradient_lab import run_gradient_lab
+                result = run_gradient_lab(store, seed=args.seed,
+                    optimizer=args.optimizer, steps=args.steps,
+                    learning_rate=args.learning_rate, count=args.count,
+                    probe_seed=args.probe_seed)
+            elif args.command == "gradient-study":
+                from .gradient_lab import run_gradient_study
+                result = run_gradient_study(store, seeds=args.seeds,
+                    optimizers=args.optimizers, steps=args.steps,
+                    count=args.count, probe_seed=args.probe_seed)
+            elif args.command == "gradient-predict":
+                from .gradient_lab import predict_gradient_lab
+                result = predict_gradient_lab(store, args.a, args.b,
+                    operator=args.operator, seed=args.seed, optimizer=args.optimizer)
             elif args.command == "assess":
                 from .evaluation import evaluate_arithmetic
                 result = evaluate_arithmetic(store, settings, questions=args.questions,

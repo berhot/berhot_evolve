@@ -1,3 +1,70 @@
+# BERHOT EVOLVE v1.8 — Gradient-Only Head Training (Adam vs SGD)
+
+## Grounding in real Mac results
+
+Your v1.7 head-calibration study reported **100%** across three operations
+and every listed OOD range, through operands 500..999, for all three seeds.
+The original saved v1.5 checkpoints scored poorly on large magnitudes.
+That showed the original bilinear model was expressive enough, given precise
+supervised head fitting; it did not show spontaneous arithmetic discovery.
+
+## Controlled v1.8 question
+
+Can ordinary **gradient descent alone** achieve the precision of v1.7's
+analytic head calibration with the same saved v1.5 hidden features?
+
+Both variants start from the same **original v1.5 output-head weights**:
+
+- **Adam** uses first/second gradient moments, default learning rate 0.01.
+- **SGD** uses plain gradients, default learning rate 0.05, no momentum.
+
+The original v1.5 hidden projections remain strictly frozen. The module
+runs on CPU in **float64** for numerical precision; only the existing
+output-head parameters receive gradients. No polynomial basis vector,
+ideal coefficients, or least-squares solution is used for optimization.
+Both train only on the original **35 unordered 0–9 training pair groups**
+with all three supervised operations. Disjoint validation groups select
+the best optimizer step and accepted/rejected status; test/OOD scores and
+the read-only v1.7 reference are accessed **only afterward**.
+
+### Mac commands
+
+```bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+
+# Train Adam on frozen features from the saved v1.5 seed-31415 model:
+python3 -m evolve gradient-lab --seed 31415 --optimizer adam --steps 2000 --count 20
+
+# Train SGD from the same saved original v1.5 output head:
+python3 -m evolve gradient-lab --seed 31415 --optimizer sgd --steps 2000 --count 20
+
+# Report every seed and both optimizers (short summary):
+python3 -m evolve gradient-study --seeds 31415 42 1001 --optimizers adam sgd --steps 2000 --count 20
+
+# Predict with the saved Adam candidate; even rejected models are labeled:
+python3 -m evolve gradient-predict --a 999 --b 998 --operator '*' --optimizer adam --seed 31415
+
+python3 -m unittest discover -s tests -v
+```
+
+The compact `gradient-study` result includes validation MSE, whether each
+checkpoint was accepted, in-range exact match, the hardest-range
+500–999 exact match, and per-operator means for all OOD groups.
+It does **not** select one lucky optimizer or seed by test accuracy.
+
+Stored checkpoints are isolated under `storage/models/gradient_lab/` and
+include the original v1.5 source SHA256. Existing v1.5, v1.7, JSM-style
+language model, and website research state are unchanged.
+
+**Scientific boundary:** This is supervised fine-tuning of a fixed
+head on learned bilinear features. The multiplication-capable architecture
+and integer magnitudes were supplied. Even perfect 500–999 scores would
+not show general reasoning or independent web-knowledge acquisition.
+The repeated OOD problems are development diagnostics, not untouched
+confirmatory benchmarks.
+
+## Previous version — v1.7
 # BERHOT EVOLVE v1.7 — Frozen Bilinear Feature Calibration
 
 ## What was established by the user's v1.6 Mac runs
