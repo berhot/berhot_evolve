@@ -238,16 +238,24 @@ class Store:
         return self.db.execute(
             "SELECT COUNT(*) FROM research_questions WHERE status='open'").fetchone()[0]
 
-    def next_open_questions(self, limit=5, cooldown_seconds=3600, supported_only=False):
-        """Never spend the evidence-fetch budget on question formats we cannot answer."""
+    def next_open_questions(self, limit=5, cooldown_seconds=3600,
+                            supported_only=False, concept=None):
+        """Choose eligible questions; optional concept selection is exact and read-safe."""
         import time
         cutoff = time.time() - max(0, float(cooldown_seconds))
-        support_filter = "AND question LIKE 'What is %?' " if supported_only else ""
+        conditions = ["status='open'",
+                      "(last_attempt_at IS NULL OR last_attempt_at<=?)"]
+        params = [cutoff]
+        if supported_only:
+            conditions.append("question LIKE 'What is %?'")
+        if concept is not None:
+            conditions.append("LOWER(concept)=?")
+            params.append(str(concept).strip().casefold())
+        params.append(max(1, min(int(limit), 50)))
         return [dict(row) for row in self.db.execute(
             "SELECT id,concept,question,source_url,source_title FROM research_questions "
-            "WHERE status='open' AND (last_attempt_at IS NULL OR last_attempt_at<=?) "
-            + support_filter + "ORDER BY attempts, id LIMIT ?",
-            (cutoff, max(1, min(int(limit), 50))))]
+            "WHERE " + " AND ".join(conditions) + " ORDER BY attempts, id LIMIT ?",
+            params)]
 
     def unsupported_question_count(self):
         return self.db.execute(
