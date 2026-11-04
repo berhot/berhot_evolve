@@ -64,6 +64,18 @@ def main(argv=None):
     rule_predict_parser = sub.add_parser("rule-predict", help="Predict with saved generic neural arithmetic classifier")
     rule_predict_parser.add_argument("--a", type=int, required=True)
     rule_predict_parser.add_argument("--b", type=int, required=True)
+    magnitude = sub.add_parser("magnitude-lab", help="Train numerical-input MLP without a hard-coded sum")
+    magnitude.add_argument("--seed", type=int, default=31415)
+    magnitude.add_argument("--steps", type=int, default=800)
+    magnitude.add_argument("--hidden", type=int, default=32)
+    magnitude_prediction = sub.add_parser("magnitude-predict", help="Predict using saved numerical-input neural model")
+    magnitude_prediction.add_argument("--a", type=int, required=True)
+    magnitude_prediction.add_argument("--b", type=int, required=True)
+    magnitude_prediction.add_argument("--candidate", action="store_true", help="Inspect rejected model instead of accepted")
+    magnitude_study = sub.add_parser("magnitude-study", help="Run predeclared seeds and report all test results")
+    magnitude_study.add_argument("--seeds", nargs="+", type=int, default=[31415, 42, 1001])
+    magnitude_study.add_argument("--steps", type=int, default=800)
+    magnitude_study.add_argument("--hidden", type=int, default=32)
     rule_predict_parser.add_argument("--candidate", action="store_true",
                                      help="Inspect latest candidate even if validation rejected it")
     assess_parser = sub.add_parser("assess", help="Measure raw numeric formatting and exact answers on unseen arithmetic")
@@ -147,6 +159,18 @@ def main(argv=None):
             elif args.command == "rule-predict":
                 from .rule_lab import predict_rule_lab
                 result = predict_rule_lab(store, args.a, args.b, use_candidate=args.candidate)
+            elif args.command == "magnitude-lab":
+                from .magnitude_lab import run_magnitude_lab
+                result = run_magnitude_lab(store, settings, steps=args.steps,
+                                           seed=args.seed, hidden=args.hidden)
+            elif args.command == "magnitude-study":
+                from .magnitude_lab import run_magnitude_study
+                result = run_magnitude_study(store, settings, seeds=args.seeds,
+                                             steps=args.steps, hidden=args.hidden)
+            elif args.command == "magnitude-predict":
+                from .magnitude_lab import predict_magnitude_lab
+                result = predict_magnitude_lab(store, args.a, args.b,
+                                               candidate=args.candidate)
             elif args.command == "assess":
                 from .evaluation import evaluate_arithmetic
                 result = evaluate_arithmetic(store, settings, questions=args.questions,
