@@ -29,6 +29,37 @@ IDEAL = {
     "*": (0.0, 0.0, 0.0, 1.0),
 }
 
+def _reference_value(a, b, operation):
+    """Bounded evaluation oracle; never called by the neural model's forward.
+
+    Preserve the production practice verifier's deliberately small 0..99
+    domain. Larger synthetic OOD probes use an isolated, independently
+    inverse-checked scoring path, with a strict 0..999 limit.
+    """
+    a, b = int(a), int(b)
+    if not (0 <= a <= 999 and 0 <= b <= 999):
+        raise ValueError("Evaluation oracle only supports operands 0..999")
+    if a <= 99 and b <= 99:
+        return checked_answer(a, b, operation)
+    if operation == "+":
+        answer = a + b
+        valid = (answer - a == b and answer - b == a)
+    elif operation == "-":
+        answer = a - b
+        valid = (answer + b == a and a - answer == b)
+    elif operation == "*":
+        answer = a * b
+        # Independent repeated-addition check is bounded to 999 terms.
+        valid = (answer == sum([a] * b)
+                 and (a == 0 or answer // a == b)
+                 and (b == 0 or answer // b == a))
+    else:
+        raise ValueError("Evaluation oracle supports only +, - and *")
+    if not valid:
+        raise ArithmeticError("OOD arithmetic inverse check failed")
+    return answer
+
+
 
 def _build_model():
     torch, nn = require_torch()
@@ -71,7 +102,7 @@ def _score(model, examples, sample_limit=3):
         hits = 0
         for i in rows:
             left, right, _ = items[i]
-            truth = checked_answer(left, right, operator)
+            truth = _reference_value(left, right, operator)
             raw = float(predicted_normalized[i]) * SCALES[index]
             guess = int(round(raw))
             errors.append(raw - truth)
@@ -184,7 +215,7 @@ def audit_interaction_coefficients(store, seed=31415, a=27, b=28):
         coeffs = values[op]
         ideal = IDEAL[op]
         raw = sum(t*c for t, c in zip(terms, coeffs)) * SCALES[idx]
-        expected = checked_answer(a, b, op)
+        expected = _reference_value(a, b, op)
         ops[op] = {
             "coefficients": _coef_dict(coeffs),
             "reference_coefficients": _coef_dict(ideal),
