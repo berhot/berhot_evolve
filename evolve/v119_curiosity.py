@@ -274,8 +274,11 @@ def research(store, settings, question, fetcher=None, progress=None,
                 "host": urlsplit(url).hostname, "excerpt": passage[:260],
                 "source_rights": rights or "UNKNOWN",
                 "publisher_noai": bool(noai),
-                "training_admitted": bool(rights in ("CC0-1.0", "PUBLIC-DOMAIN")
-                                          and not noai),
+                # The research operation does not run an eligibility
+                # freeze or neural training. A visible license declaration is
+                # source metadata, not proof that training took place.
+                "training_admitted": False,
+                "declared_rights_signal": rights or "UNKNOWN",
             })
         except Exception as exc:
             errors.append({"url": url, "reason": str(exc)[:200]})
