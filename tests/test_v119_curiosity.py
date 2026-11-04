@@ -7,6 +7,7 @@ from evolve.open_corpus import archive_page
 from evolve.settings import load_config
 from evolve.store import Store
 from evolve.v118_core import qa_readiness
+from evolve.v118_studio import LearningController
 from evolve.v119_curiosity import (_topic, best_passage, candidates,
                                    smart_lookup, research, sentence_lessons)
 
@@ -99,6 +100,17 @@ class CuriosityTests(unittest.TestCase):
                 second=sentence_lessons(store,per_host=14)
                 self.assertEqual(second["new_lessons"],0)
                 self.assertEqual(qa_readiness(store)["status"],"ready")
+                cfg = copy.deepcopy(load_config())
+                cfg["storage_root"] = root
+                controller = LearningController(cfg, interval=30)
+                try:
+                    view = controller.status()
+                    self.assertEqual(view["human_reviewed_qa_examples"], 0)
+                    self.assertGreater(view["source_derived_lessons"], 0)
+                    self.assertEqual(view["qa_training_readiness"]["status"],
+                                     "ready")
+                finally:
+                    controller.shutdown()
                 for item in store.get("v119_auto_lessons"):
                     self.assertEqual(item["source_provenance"],
                         "auto_exact_source_continuation_not_verified_qa")
