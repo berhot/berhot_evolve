@@ -1,6 +1,14 @@
-# BERHOT EVOLVE v0.4 — Content-Grounded Discovery
+# BERHOT EVOLVE v0.5 — Persistent Curiosity Queue
 
 This is an **experimental learning platform**, not a self-conscious agent or general autonomous intelligence. It introduces a way to **explore public HTTPS pages without requiring a declared training license at each page**, while **separating observations from training data**. The project still uses a randomly initialized, tiny byte-level PyTorch Transformer. Concept selection is heuristic, not yet intelligent self-directed research.
+
+## Changes in v0.5
+
+- EVOLVE now persists **open research questions** connected to each discovered topic and source URL.
+- New `questions` command lists the question queue; `status` separates open questions from verified questions.
+- The previous `reviewed` label was misleading: a generated question does not mean learned knowledge. Old `reviewed` concepts are requeued once, preserving observations and other data, so their questions become durable.
+- No answers are fabricated and no research-only pages enter neural training. Future versions must gather and validate evidence before marking questions verified.
+- The question generator is still a simple bootstrap heuristic, not autonomous factual reasoning.
 
 ## Changes in v0.4
 
@@ -66,6 +74,7 @@ The following URL is the user's example. The page is **not treated as licensed n
 # macOS / Linux
 python3 -m evolve explore --seed-url "https://www.worldometers.info/languages/english-alphabet/" --limit 8 --cross-host
 python3 -m evolve concepts --limit 20
+python3 -m evolve questions --limit 20
 python3 -m evolve status
 python3 -m evolve discover --limit 8
 ```
@@ -74,6 +83,7 @@ python3 -m evolve discover --limit 8
 # Windows PowerShell
 python -m evolve explore --seed-url "https://www.worldometers.info/languages/english-alphabet/" --limit 8 --cross-host
 python -m evolve concepts --limit 20
+python -m evolve questions --limit 20
 python -m evolve status
 python -m evolve discover --limit 8
 ```
@@ -170,7 +180,7 @@ If discovery returns `Cannot verify robots.txt: [SSL: CERTIFICATE_VERIFY_FAILED]
 ## Learning limits and realistic goals
 
 - `explore` now ranks **page-grounded** lexical candidates using observed headings, title and word counts. It **does not** yet truly understand these topics, independently explain them, or verify broad factual claims.
-- The tiny Transformer does not become intelligent merely because the crawler discovers many pages. Its knowledge depends on usable data, training objectives, feedback, evaluation, and compute.
+- The tiny Transformer does not become intelligent merely because the crawler discovers many pages or generates questions. Its knowledge depends on usable data, training objectives, feedback, evaluation, and compute.
 - Public content is not necessarily permitted for copying or model training; the permissibility depends on content, jurisdiction, and relevant terms. The program does not claim to make legal determinations. This version merely removes training-license checks **from the act of observing public HTML**.
 - For later image/audio/video/3D and social media: use dedicated opt-in/authorized connectors, scan files, minimize personal data, and run decoders in sandboxed workers.
 
@@ -212,3 +222,18 @@ Tests use local HTML fixtures and have **no external network dependency**. Live 
 For an alphabet tutorial, the system will prioritize terms actually seen in that tutorial, such as `alphabet`, `letters` and `vowels`, rather than inventing an unrelated operator-supplied subject. Discovered topics are ranked heuristically, stored with their page source and processed under queue limits. The `concepts` command shows their current status. This is a bootstrap toward intelligent self-directed research, not a demonstrated autonomous reasoning agent.
 
 For setup, learning commands, and platform-specific tests, use the sections above.
+
+## Check the curiosity queue on existing installations
+
+From the repository directory, update without deleting `storage/`:
+
+```bash
+# macOS / Linux
+source .venv/bin/activate
+git pull origin main
+python3 -m evolve discover --limit 8
+python3 -m evolve questions --limit 20
+python3 -m evolve status
+```
+
+The first discovery cycle after upgrading v0.4 automatically requeues older `reviewed` concept entries that had only logged questions. The open-question list does not contain answers. If `research_questions_verified` remains zero, this is accurate: evidence checking and real learning are separate future milestones.
