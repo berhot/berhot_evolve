@@ -256,7 +256,7 @@ def main(argv=None):
                 result = store.status()
             elif args.command == "model-audit":
                 from .model_audit import audit_model_and_ownership
-                result = audit_model_and_ownership(store)
+                result = audit_model_and_ownership(store, settings=settings)
             elif args.command == "corpus-status":
                 from .open_corpus import corpus_status
                 result = corpus_status(store)
