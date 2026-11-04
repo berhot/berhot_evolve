@@ -1547,3 +1547,31 @@ newly researched pages, trains on unlicensed content, removes your existing
 checkpoints or claims that lower loss proves independent reasoning.
 
 Full guide: [Curiosity Loop v1.19](docs/CURIOSITY_V119.md).
+
+
+## v1.20 — Grounded science definitions and actual evidence-ranking training
+
+BERHOT EVOLVE can now show a **readable answer** when a previously
+rights-reviewed science article explicitly contains a definitional
+sentence. Example: asking "What is the Sun?" searches for an actual
+"The Sun is ..." source quote, prefers it to an unrelated fact about
+its lifetime, and shows the clickable publisher URL. It does **not**
+invent an explanation. Curiosity still performs bounded research
+when necessary. Grounded Q&A mode never makes network requests.
+
+It also introduces a separate, small **PyTorch neural evidence ranker**
+trained on exact-source question/evidence pairs with **independent
+publisher-host train/validation/test splits** and SHA-verified immutable
+checkpoints. A learned ranker chooses between existing passages;
+**it is not a generative language model**. When there are not enough
+explicit definitions per host, training safely skips and explains why.
+
+```bash
+python3 -m evolve v120-inventory
+python3 -m evolve v120-readiness
+python3 -m evolve v120-ask --question "What is the Sun?"
+python3 -m evolve v120-train --steps 120
+python3 -m evolve studio --port 8787 --interval 60
+```
+
+Full [v1.20 Grounded Q&A guide](docs/GROUNDED_QA_V120.md).
