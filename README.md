@@ -1599,3 +1599,8 @@ python3 -m evolve v121-history
 ```
 
 [Full autonomous curiosity guide](docs/AUTONOMOUS_CURIOSITY_V121.md). This does **not** demonstrate general understanding or fluent generated answers. Missing held-out NOAA/test data will still block ranker training.
+
+
+## v1.21.1 — Learning quality and compact progress
+
+A correct citation test is not a guarantee of a meaningful lesson: the extraction filter now refuses low-information subjects such as `result` and metalinguistic phrases such as `word photosphere`. Use `python3 -m evolve v121-report` for a short read-only summary of which questions were researched, citation quiz results, whether neural weights actually trained and which independent-source examples were missing *at the last cycle*. It does not rewrite historical manifests or give rights to new pages.
