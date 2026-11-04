@@ -18,13 +18,18 @@ def build_model(config):
     block = int(config["block_size"])
     heads = int(config["heads"])
     layers = int(config["layers"])
+    # Legacy byte-level checkpoints have NO vocab_size field and must retain
+    # their exact 256-way output dimensions for backward compatibility.
+    vocab_size = int(config.get("vocab_size", 256))
+    if not 2 <= vocab_size <= 4096:
+        raise ValueError("vocab_size must be 2..4096")
     if dim % heads:
         raise ValueError("embedding_dim must be divisible by heads")
 
     class BabyGPT(nn.Module):
         def __init__(self):
             super().__init__()
-            self.token = nn.Embedding(256, dim)
+            self.token = nn.Embedding(vocab_size, dim)
             self.pos = nn.Embedding(block, dim)
             layer = nn.TransformerEncoderLayer(
                 d_model=dim, nhead=heads, dim_feedforward=dim * 4,
@@ -33,7 +38,7 @@ def build_model(config):
             )
             self.layers = nn.TransformerEncoder(layer, num_layers=layers, enable_nested_tensor=False)
             self.norm = nn.LayerNorm(dim)
-            self.out = nn.Linear(dim, 256)
+            self.out = nn.Linear(dim, vocab_size)
 
         def forward(self, tokens):
             _, length = tokens.shape
