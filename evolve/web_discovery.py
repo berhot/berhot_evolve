@@ -305,18 +305,31 @@ def discover_web(store,settings,limit=None,fetcher=None,sleep_fn=time.sleep):
             store.log('web_source_error','error',{'url':url,'error':reason})
         if report['attempted']<cap and settings.get('crawl_delay_seconds',0)>0:
             sleep_fn(float(settings['crawl_delay_seconds']))
-    # Bounded concept-knowledge loop; this is lexical bootstrap, not true semantic understanding.
+    # Pre-semantic curiosity bootstrap: persist unanswered questions; do NOT
+    # mark these concepts as understood, validated, or model-trained.
+    report['questions_created']=0
     for _ in range(min(int(settings.get('web',{}).get('concept_reviews_per_cycle',5)),5)):
         task=store.next_concept_task()
         if task is None:break
         topic=task['term']
         evidence=store.concept_sources(topic)
-        store.mark_concept_task(topic,'reviewed')
-        store.log('concept_review','completed',{'term':topic,'observed_source_count':len(evidence),
-                      'observed_sources':evidence[:3],
-                      'open_questions':[f'What does {topic} mean?',
-                                        f'Which other concepts are related to {topic}?',
-                                        f'Can the learner use {topic} correctly in new contexts?'],
-                      'note':'Open questions only; lexical matching is not verified semantic learning'})
+        source_url=task['source_url']
+        source_title=task['source_title'] or (evidence[0]['title'] if evidence else '')
+        questions=[
+            f'What is {topic}?',
+            f'What other ideas are closely related to {topic}?',
+            f'How can {topic} be explained and independently checked?',
+        ]
+        created=0
+        for question in questions:
+            if store.add_research_question(topic,question,source_url,source_title):
+                created+=1
+        report['questions_created']+=created
+        store.mark_concept_task(topic,'questions_open')
+        store.log('concept_questioning','completed',{'term':topic,
+            'observed_source_count':len(evidence),'source_url':source_url,
+            'questions_added':created,
+            'note':'These are open research questions, not verified knowledge.'})
     report['concepts_pending']=store.pending_concepts()
+    report['research_questions_open']=store.open_questions_count()
     return report
