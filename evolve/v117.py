@@ -260,7 +260,7 @@ def _report_for_model(model, streams, kind, tok, cfg, seed=42):
 
 def train(store, settings, steps=120, seed=31415, device="cpu",
           bpe_vocab=320, context=64, embedding_dim=32,
-          layers=1, heads=2):
+          layers=1, heads=2, progress=None):
     if not 1 <= int(steps) <= 5000:
         raise ValueError("steps must be 1..5000")
     if not 64 <= int(context) <= 256:
@@ -280,6 +280,8 @@ def train(store, settings, steps=120, seed=31415, device="cpu",
         torch.set_num_threads(min(4, torch.get_num_threads()))
     from .training import random_batch
     candidates = {}
+    if progress:
+        progress("dataset", 0, 2 * int(steps), None)
     for kind in KINDS:
         tok, tok_sha, tok_path = _tokenizer(
             store, ready["dataset_sha256"], kind,
@@ -314,6 +316,10 @@ def train(store, settings, steps=120, seed=31415, device="cpu",
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             actual += 1
+            if progress and (actual == 1 or actual % 10 == 0 or actual == steps):
+                offset = 0 if kind == KINDS[0] else int(steps)
+                progress(kind, offset + actual, 2 * int(steps),
+                         round(float(loss.detach().cpu().item()), 5))
             if time.monotonic() - start >= float(
                     settings["train"].get("max_seconds", 600)):
                 break
@@ -350,6 +356,9 @@ def train(store, settings, steps=120, seed=31415, device="cpu",
                 "estimated_bits_per_utf8_target_byte"],
         }
         candidates[kind] = record
+        if progress:
+            progress(kind + "_saved", (0 if kind == KINDS[0] else
+                     int(steps)) + actual, 2 * int(steps), None)
     if before != _archive_snapshot(store):
         raise ValueError("Existing model checkpoint or registry changed")
     report = {
