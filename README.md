@@ -1,3 +1,60 @@
+# BERHOT EVOLVE v1.5 — Learned Bilinear Interactions
+
+## What the Mac's v1.4 results show
+
+The shared smooth-MLP arithmetic model learned most held-out 0–9 combinations
+of addition, subtraction and multiplication, but generalization to unseen
+magnitudes was unequal. Across three seeds, average exact-match OOD results
+for **both 20–29 operands** were **0% addition, 50.9% subtraction, 0%
+multiplication**. The single prediction for 27*28 was 538 instead of 756.
+All 73 local tests passed. Those tests validate the software, not reasoning.
+
+## Controlled v1.5 interaction experiment
+
+A new shared model receives ordered numeric magnitudes, learns separate
+projections of the left and right operand, and **multiplies their hidden
+activations elementwise** before a learned three-output head. This is a
+**strong bilinear inductive bias**: it puts product-like relationships into
+the model's hypothesis class. The coefficients and operation responses
+are learned from supervised examples; no arithmetic answer is substituted
+during inference. It must NOT be called autonomous discovery of multiplication.
+
+It uses the exact same 35/10/10 unordered-pair training/validation/test split
+for each seed as v1.4, with forward/reverse operand orientations kept together.
+All three operations (+,-,*) share one neural model. Checkpoints are chosen
+using validation only. Frozen v1.4 models are re-evaluated, read-only,
+only where the saved seed/split match. New independent development probe
+ranges **both 30–49** and **both 50–99** are added alongside the old
+10–29 probes; the network does not train on any of these OOD problems.
+
+### Run on Mac
+
+```bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+python3 -m evolve interaction-lab --seed 31415 --steps 800 --rank 8 --count 20
+python3 -m evolve interaction-predict --a 27 --b 28 --operator '*' --seed 31415
+python3 -m evolve interaction-predict --a 27 --b 28 --operator '+' --seed 31415
+python3 -m evolve interaction-predict --a 27 --b 28 --operator '-' --seed 31415
+python3 -m evolve interaction-study --seeds 31415 42 1001 --steps 800 --rank 8 --count 20
+python3 -m unittest discover -s tests -v
+```
+
+The study prints in-range and OOD accuracy separately by operation and
+every seed. All candidate weights are stored under
+`storage/models/interaction_lab/`, SHA-verified and labeled accepted or
+unaccepted based on validation improvement. Your v1.4 and v1.3 checkpoint
+files, neural language model, web observations, and source-rights policies
+remain untouched.
+
+**Scientific boundary:** If multiplication improves beyond 0–9, it would
+demonstrate that supplying a bilinear interaction allows this small supervised
+model to represent products. It would not demonstrate emergent universal
+arithmetic, carrying algorithms, or independently validated web knowledge.
+Repeated probes and shared pairs across seeds are not independent
+confirmatory benchmarks. An entirely new held-out task is still needed.
+
+## Previous version — v1.4
 # BERHOT EVOLVE v1.4 — Shared Three-Operation Neural Study
 
 ## From the v1.3 Mac results
