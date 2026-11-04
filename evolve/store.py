@@ -56,6 +56,23 @@ class Store:
                 status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
                 last_error TEXT, discovered_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS web_corpus_texts (
+                sha256 TEXT PRIMARY KEY, clean_path TEXT NOT NULL,
+                characters INTEGER NOT NULL, words INTEGER NOT NULL,
+                quality_score REAL NOT NULL, split TEXT NOT NULL,
+                first_seen_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS web_corpus_sources (
+                url TEXT PRIMARY KEY, sha256 TEXT NOT NULL,
+                raw_html_sha256 TEXT NOT NULL, raw_path TEXT NOT NULL,
+                title TEXT NOT NULL, host TEXT NOT NULL,
+                rights_status TEXT NOT NULL, rights_evidence_url TEXT,
+                noai INTEGER NOT NULL DEFAULT 0,
+                observed_at TEXT NOT NULL,
+                FOREIGN KEY(sha256) REFERENCES web_corpus_texts(sha256)
+            );
+            CREATE INDEX IF NOT EXISTS web_corpus_sources_sha_idx
+              ON web_corpus_sources(sha256);
             CREATE TABLE IF NOT EXISTS page_observations (
                 url TEXT PRIMARY KEY, title TEXT NOT NULL, sha256 TEXT NOT NULL,
                 characters INTEGER NOT NULL, extracted_concepts TEXT NOT NULL,
@@ -447,6 +464,10 @@ class Store:
     def status(self):
         return {
             "documents": self.count("documents"),
+            "collected_web_urls": self.db.execute(
+                "SELECT COUNT(*) FROM web_corpus_sources").fetchone()[0],
+            "unique_cleaned_web_texts": self.db.execute(
+                "SELECT COUNT(*) FROM web_corpus_texts").fetchone()[0],
             "research_pages": self.db.execute("SELECT COUNT(*) FROM page_observations").fetchone()[0],
             "research_only_pages": self.db.execute(
                 "SELECT COUNT(*) FROM page_observations WHERE training_status='research_only'"
