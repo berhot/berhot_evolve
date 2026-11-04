@@ -137,9 +137,17 @@ def train_math_answerer(store, settings, skill="mixed", steps=400, force=False):
     )
     batch_size = max(1, min(64, int(settings["train"]["batch_size"])))
     max_seconds = max(1, float(settings["train"]["max_seconds"]))
+    min_delta = max(0.0, float(settings["train"]["min_improvement"]))
+    interval = max(1, min(25, steps // 10))
+    best_val = before_val
+    best_state = None
+    best_step = 0
+    no_improvement_checks = 0
+    early_stopped = False
     start = time.monotonic()
     actual_steps = 0
     for _ in range(steps):
+        model.train()
         batch = [train[rng.randrange(len(train))] for _ in range(batch_size)]
         loss = _loss(model, batch, torch, device)
         optimizer.zero_grad(set_to_none=True)
@@ -147,12 +155,31 @@ def train_math_answerer(store, settings, skill="mixed", steps=400, force=False):
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
         actual_steps += 1
+        if actual_steps % interval == 0 or actual_steps == steps:
+            validation = _validation_loss(model, valid, torch, device)
+            if math.isfinite(validation) and validation + min_delta < best_val:
+                best_val = validation
+                best_step = actual_steps
+                best_state = {key: value.detach().cpu().clone()
+                              for key, value in model.state_dict().items()}
+                no_improvement_checks = 0
+            else:
+                no_improvement_checks += 1
+                if no_improvement_checks >= 8:
+                    early_stopped = True
+                    break
         if time.monotonic() - start > max_seconds:
             break
+    final_step_validation_loss = _validation_loss(model, valid, torch, device)
+    # Restore the best candidate chosen using validation only.
+    # If validation never improved, do not claim success.
+    if best_state is not None:
+        model.load_state_dict(best_state)
     after_train = _validation_loss(model, train, torch, device)
     after_val = _validation_loss(model, valid, torch, device)
-    accepted = math.isfinite(after_val) and (
-        baseline is None or after_val + float(settings["train"]["min_improvement"]) < baseline)
+    threshold = baseline if baseline is not None else before_val
+    accepted = (best_step > 0 and math.isfinite(after_val) and
+                after_val + min_delta < threshold)
     directory = store.root / "models" / "math"
     directory.mkdir(parents=True, exist_ok=True)
     name = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -165,7 +192,9 @@ def train_math_answerer(store, settings, skill="mixed", steps=400, force=False):
         "train_examples": len(train), "heldout_examples": len(valid),
         "pre_train_loss": before_train, "post_train_loss": after_train,
         "pre_val_loss": before_val, "val_loss": after_val,
-        "training_steps": actual_steps, "seed": int(settings["train"]["seed"]),
+        "training_steps": actual_steps, "best_step": best_step,
+        "promotion_policy": "requires_heldout_improvement_even_for_first_checkpoint_v2",
+        "seed": int(settings["train"]["seed"]),
     }, filename)
     digest = sha256_file(filename)
     if accepted:
@@ -187,6 +216,11 @@ def train_math_answerer(store, settings, skill="mixed", steps=400, force=False):
         "pre_val_answer_loss": round(before_val, 4),
         "post_val_answer_loss": round(after_val, 4),
         "previous_checkpoint_val_loss": round(baseline, 4) if baseline is not None else None,
+        "promotion_threshold_loss": round(threshold, 4),
+        "best_step": best_step, "early_stopped": early_stopped,
+        "final_step_val_loss": round(final_step_validation_loss, 4),
+        "overfitting_detected": after_train < before_train and after_val > before_val,
+        "promotion_policy": "requires_heldout_improvement_even_for_first_checkpoint_v2",
         "accepted": accepted, "candidate_path": str(filename),
         "sha256": digest,
         "note": "Answer-only token loss measures training objective; arithmetic skill requires heldout exact-match evaluation.",
