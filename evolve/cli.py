@@ -64,6 +64,13 @@ def main(argv=None):
     sub.add_parser("v119-self-study", help="Mine reading exercises from rights-reviewed local sources (no web calls)")
     study_train = sub.add_parser("v119-study-train", help="Create exact-source reading lessons and train a separate neural QA model when ready")
     study_train.add_argument("--steps", type=int, default=60)
+    grounded = sub.add_parser("v120-ask", help="Answer a simple definition from an exact approved source quote (not neural generation)")
+    grounded.add_argument("--question", required=True)
+    sub.add_parser("v120-inventory", help="Count source-extracted definition candidates and neural ranker")
+    sub.add_parser("v120-readiness", help="Check host-held-out definition question ranking data")
+    ranker = sub.add_parser("v120-train", help="Train independent PyTorch evidence ranker on source-derived definition pairs")
+    ranker.add_argument("--steps", type=int, default=120)
+    ranker.add_argument("--seed", type=int, default=31415)
     studio = sub.add_parser("studio", help="Launch local live web dashboard with chat and controlled learning")
     studio.add_argument("--port", type=int, default=8787)
     studio.add_argument("--interval", type=int, default=3600,
@@ -396,6 +403,18 @@ def main(argv=None):
                 result = review_rights(store, args.url, args.license,
                                        args.evidence_url,
                                        confirmed=args.confirm_manual_review)
+            elif args.command == "v120-ask":
+                from .v120_grounded import grounded_answer
+                result = grounded_answer(store, args.question)
+            elif args.command == "v120-inventory":
+                from .v120_grounded import inventory
+                result = inventory(store)
+            elif args.command == "v120-readiness":
+                from .v120_grounded import readiness
+                result = readiness(store)
+            elif args.command == "v120-train":
+                from .v120_grounded import train_ranker
+                result = train_ranker(store, settings, steps=args.steps, seed=args.seed)
             elif args.command == "v119-research":
                 from .v119_curiosity import research
                 result = research(store, settings, args.question)
