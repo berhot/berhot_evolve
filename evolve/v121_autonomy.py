@@ -435,7 +435,10 @@ def learning_report(store):
         }
     evaluation = latest.get("local_quiz_audit") or {}
     training = latest.get("neural_training") or {}
-    ready = readiness(store)
+    # Use the *last completed cycle's* readiness snapshot. Recomputing
+    # readiness would call freeze_dataset() and write files, violating this
+    # command's read-only contract.
+    ready = latest.get("heldout_readiness") or {}
     missing = {}
     for split in ("train", "val", "test"):
         count = (ready.get("counts") or {}).get(split, 0)
@@ -477,8 +480,8 @@ def learning_report(store):
             "heldout_test": training.get("test_after"),
             "requires_three_independent_host_partitions": True,
         },
-        "missing_to_train": missing,
-        "source_hosts_by_split": ready.get("source_hosts", {}),
+        "missing_to_train_at_last_cycle": missing,
+        "source_hosts_by_split_at_last_cycle": ready.get("source_hosts", {}),
         "understanding_proven": False,
         "new_web_research_automatically_training_eligible": False,
         "next_action": (
