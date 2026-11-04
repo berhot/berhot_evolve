@@ -14,9 +14,10 @@ from evolve.settings import load_config
 from evolve.store import Store
 from evolve.v120_grounded import grounded_answer
 from evolve.v121_autonomy import (
-    source_questions, build_lesson_bank, audit_quiz,
+    source_questions, curiosity_queue, build_lesson_bank, audit_quiz,
     plan, cycle, history, learning_report,
 )
+from evolve.v122_evidence import evidence_report
 
 try:
     import torch
@@ -99,6 +100,75 @@ class AutonomyTests(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_research_progression_skips_cached_and_cooldown_topics(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = Store(root)
+            try:
+                populate(store, hosts=2)
+                store.add_concept_task(
+                    "photon", "https://nasa.example.org/science", priority=50)
+                store.add_concept_task(
+                    "nebula", "https://nasa.example.org/science", priority=40)
+                store.add_concept_task(
+                    "entropy", "https://nasa.example.org/science", priority=30)
+                from evolve.v119_curiosity import _key
+                import time
+                store.put(_key("photon"), {
+                    "status": "researched", "topic": "photon",
+                    "answer": "A saved source excerpt, not training",
+                    "sources": []})
+                store.put(_key("nebula"), {
+                    "status": "unresolved", "topic": "nebula",
+                    "retry_after_epoch": time.time() + 7200,
+                    "reason": "no_supported_passage"})
+                progress = curiosity_queue(store, limit=8)
+                self.assertEqual(
+                    [x["topic"] for x in progress["questions"]],
+                    ["entropy"])
+                self.assertEqual(
+                    progress["deferred_by_reason"]["previous_research_available"], 1)
+                self.assertEqual(
+                    progress["deferred_by_reason"]["retry_cooldown_active"], 1)
+                self.assertEqual(
+                    progress["status"], "questions_available")
+                # Planning does not modify network quotas or training rights.
+                self.assertEqual(progress["network_requests_made"], 0)
+            finally:
+                store.close()
+
+    def test_evidence_qualification_excludes_unknown_and_tracks_hosts(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = Store(root)
+            try:
+                populate(store, hosts=2)
+                archive_page(
+                    store, "https://unreviewed.example.org/glacier",
+                    "<html><title>What is a glacier?</title></html>",
+                    "A glacier is a large slow-moving mass of ice "
+                    "formed from accumulated snow on land. " * 15,
+                    title="What is a glacier?", declared_license=None,
+                    noai=False)
+                result = evidence_report(store)
+                self.assertEqual(result["status"], "review_only")
+                self.assertGreaterEqual(result["sources_examined"], 3)
+                proposal = next(item for item in result["sources"]
+                                if item["host"] == "unreviewed.example.org")
+                self.assertEqual(proposal["status"],
+                                 "research_only_requires_article_rights_review")
+                self.assertFalse(proposal["neural_training_admitted"])
+                self.assertIn("glacier", proposal["extracted_candidate_topics"])
+                self.assertEqual(
+                    store.db.execute(
+                        "SELECT rights_status FROM web_corpus_sources "
+                        "WHERE url='https://unreviewed.example.org/glacier'"
+                    ).fetchone()[0], "UNKNOWN")
+                self.assertFalse(
+                    result["claims"]["rights_approved_automatically"])
+                self.assertFalse(
+                    result["claims"]["unverified_extraction_is_truth"])
+            finally:
+                store.close()
+
     def test_offline_cycle_does_not_network_or_invent_train_test_hosts(self):
         with tempfile.TemporaryDirectory() as root:
             store = Store(root)
@@ -162,8 +232,13 @@ class AutonomyTests(unittest.TestCase):
                                max_topics=1, max_requests=1, steps=4,
                                research_fn=fake_research)
                 self.assertEqual(len(calls), 1)
-                self.assertEqual(second["research_outcomes"][0]["status"],
-                                 "already_attempted_today")
+                # Progress to NEW words instead of repeating the same
+                # researched question on the next autonomous cycle.
+                self.assertEqual(second["curiosity_question_count"], 0)
+                self.assertEqual(second["new_requests_this_cycle"], 0)
+                self.assertGreaterEqual(
+                    second["curiosity_triage"]["deferred_by_reason"][
+                        "already_attempted_today"], 1)
             finally:
                 store.close()
 
@@ -184,6 +259,21 @@ class NeuralCycleTests(unittest.TestCase):
                                  first["neural_training"])
                 self.assertGreaterEqual(
                     first["neural_training"]["test_after"]["n"], 2)
+                benchmark = first["neural_training"]["benchmark"]
+                self.assertEqual(
+                    benchmark["lexical_test"]["n"],
+                    first["neural_training"]["test_after"]["n"])
+                self.assertAlmostEqual(
+                    benchmark["test_accuracy_delta_vs_lexical"],
+                    round(
+                        benchmark["neural_test_pair_accuracy"] -
+                        benchmark["lexical_test"]["pair_accuracy"], 4))
+                self.assertFalse(
+                    benchmark["selected_model_using_test_results"])
+                self.assertFalse(
+                    benchmark["external_semantic_generalization_proven"])
+                self.assertTrue(
+                    benchmark["different_topic_easy_negative_pairs"])
                 self.assertTrue(first["new_neural_weights_trained"])
                 self.assertFalse(first["understanding_proven"])
                 sha = first["neural_training"]["sha256"]
