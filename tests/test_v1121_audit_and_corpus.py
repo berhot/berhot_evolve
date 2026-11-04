@@ -51,7 +51,10 @@ class ReportingCorrections(unittest.TestCase):
             cfg = load_config()
             cfg["storage_root"] = root
             cfg["daily_request_budget"] = 0
-            corpus_seed(store, ["https://example.org/"])
+            seeds = corpus_seed(store, ["https://example.org/"])
+            self.assertEqual(seeds["illustrative_domains_queued"],
+                             ["https://example.org/"])
+            self.assertIn("reserved", seeds["warning"])
             store.add_concept_task(
                 "volcano", "https://example.org/",
                 max_total=20, priority=1.0, source_title="volcano")
