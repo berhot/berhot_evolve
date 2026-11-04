@@ -17,14 +17,16 @@ def main(argv=None):
     web_start.add_argument("--seed-url", required=True)
     web_start.add_argument("--license", choices=["CC0-1.0","PUBLIC-DOMAIN","AUTHORIZED-TRAINING"])
     web_start.add_argument("--rights-evidence-url")
-    web_start.add_argument("--focus", default="", help="Optional initial concept, e.g. school")
+    web_start.add_argument("--focus", default="", help=argparse.SUPPRESS)  # legacy flag ignored
     web_start.add_argument("--limit", type=int, default=12)
     explore = sub.add_parser('explore', help='Read public HTML for concepts; no training-rights assertion needed')
     explore.add_argument('--seed-url', required=True)
-    explore.add_argument('--focus', default='')
+    explore.add_argument('--focus', default='', help=argparse.SUPPRESS)  # legacy flag ignored
     explore.add_argument('--limit', type=int, default=8)
     explore.add_argument('--cross-host', action='store_true', help='Follow public links across domains within crawl budgets')
     sub.add_parser("status", help="Show persistent learner status")
+    concept_parser = sub.add_parser("concepts", help="Show discovered concepts ranked by page evidence")
+    concept_parser.add_argument("--limit", type=int, default=20)
     train_parser = sub.add_parser("train", help="Train model candidate with PyTorch")
     train_parser.add_argument("--force", action="store_true", help="Ignore new-data threshold")
     sub.add_parser("lab", help="Try verifiable arithmetic experiments")
@@ -52,16 +54,18 @@ def main(argv=None):
         try:
             if args.command == "status":
                 result = store.status()
+            elif args.command == "concepts":
+                result = {"concepts": store.list_concept_tasks(args.limit)}
             elif args.command == 'explore':
                 from .web_discovery import register_exploration, discover_web
-                profile = register_exploration(store,args.seed_url,args.focus,args.cross_host)
+                profile = register_exploration(store,args.seed_url,cross_host=args.cross_host)
                 result = {'profile':profile, 'first_discovery':discover_web(store,settings,limit=args.limit)}
             elif args.command == "web-start":
                 from .web_discovery import register_seed,discover_web,fetch_page
                 if bool(args.license) != bool(args.rights_evidence_url):
                     raise ValueError('Provide both --license and --rights-evidence-url, or neither to use on-page CC0 detection')
                 seed_html=(fetch_page(args.seed_url,settings) if not args.license else None)
-                profile=register_seed(store,args.seed_url,args.license,args.rights_evidence_url,args.focus,seed_html)
+                profile=register_seed(store,args.seed_url,args.license,args.rights_evidence_url,seed_html=seed_html)
                 result={"profile":profile,"first_discovery":discover_web(store,settings,limit=args.limit)}
             elif args.command == "discover":
                 if store.get('web_source_profile'):
