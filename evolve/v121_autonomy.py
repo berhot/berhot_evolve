@@ -67,58 +67,100 @@ def _topic_ok(raw):
     return topic
 
 
-def source_questions(store, limit=8):
-    """Curiosity targets are grounded in existing concept or source-title records.
+def curiosity_queue(store, limit=8):
+    """Progress through observed concepts without revisiting completed research.
 
-    A source title/question is NOT evidence that an answer exists. Existing
-    approved definitions are used for study; missing concepts for research.
+    Every candidate originates from archived metadata or an existing user
+    research question; no LLM or random seed words. Completed source lookups
+    cannot silently become training examples, and unresolved failures honor
+    their cooldown. The query is read-only.
     """
     if not 1 <= int(limit) <= 20:
         raise ValueError("limit must be 1..20")
-    approved = _inventory(store)
-    known = {x["topic"] for x in approved}
-    candidates, seen = [], set()
+    from .v119_curiosity import cached
+    import time
 
-    def append(term, url, origin, rank):
-        normalized = _topic_ok(term)
-        if not normalized or normalized in known or normalized in seen:
+    known = {f["topic"] for f in _inventory(store)}
+    seen, pending = set(), []
+    deferred = {
+        "already_has_approved_definition": 0,
+        "previous_research_available": 0,
+        "already_attempted_today": 0,
+        "retry_cooldown_active": 0,
+        "invalid_or_unsupported_topic": 0,
+    }
+    attempts = store.get(_ATTEMPTS_KEY, {}) or {}
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    def add(term, url, origin, priority):
+        topic = _topic_ok(term)
+        if topic is None:
+            deferred["invalid_or_unsupported_topic"] += 1
+            return
+        if topic in seen:
+            return
+        seen.add(topic)
+        if topic in known:
+            deferred["already_has_approved_definition"] += 1
+            return
+        previous = cached(store, topic)
+        if previous and previous.get("status") == "researched":
+            deferred["previous_research_available"] += 1
+            return
+        if today + ":" + topic in attempts:
+            deferred["already_attempted_today"] += 1
+            return
+        if (previous and previous.get("status") == "unresolved" and
+                (previous.get("reason") != "daily_budget_exhausted" or
+                 (previous.get("finished_at_utc") or "")[:10] == today) and
+                time.time() < float(previous.get("retry_after_epoch", float("inf")))):
+            deferred["retry_cooldown_active"] += 1
             return
         if not isinstance(url, str) or not url.startswith("https://"):
+            deferred["invalid_or_unsupported_topic"] += 1
             return
-        seen.add(normalized)
-        candidates.append({
-            "topic": normalized, "question": "What is " + normalized + "?",
-            "observed_at": url, "origin": origin,
-            "priority": round(float(rank), 3),
+        pending.append({
+            "topic": topic,
+            "question": "What is " + topic + "?",
+            "observed_at": url,
+            "origin": origin,
+            "priority": round(float(priority), 3),
             "answer_known": False,
         })
 
-    # User's existing 40+ questions were already generated from discovered
-    # concepts; reuse them before exploring unrelated encyclopaedia topics.
-    rows = store.db.execute(
+    for row in store.db.execute(
         "SELECT concept,source_url FROM research_questions "
         "WHERE status='open' AND question LIKE 'What is %?' "
-        "ORDER BY id LIMIT 100").fetchall()
-    for row in rows:
-        append(row["concept"], row["source_url"], "unanswered_saved_question", 5)
-
-    rows = store.db.execute(
+        "ORDER BY id LIMIT 300"):
+        add(row["concept"], row["source_url"], "unanswered_saved_question", 5)
+    for row in store.db.execute(
         "SELECT term,source_url,priority FROM concept_tasks "
-        "WHERE status='pending' ORDER BY priority DESC,term LIMIT 100").fetchall()
-    for row in rows:
-        append(row["term"], row["source_url"], "concept_from_observed_page",
-               3 + min(1, max(0, float(row["priority"])) / 100))
+        "WHERE status='pending' ORDER BY priority DESC,term LIMIT 300"):
+        add(row["term"], row["source_url"],
+            "concept_from_observed_page",
+            3 + min(1, max(0, float(row["priority"])) / 100))
+    for row in store.db.execute(
+        "SELECT url,title FROM web_corpus_sources ORDER BY url LIMIT 200"):
+        topic = title_question(row["title"])
+        if topic:
+            add(topic, row["url"], "question_from_article_title", 4)
 
-    rows = store.db.execute(
-        "SELECT url,title FROM web_corpus_sources ORDER BY url LIMIT 200").fetchall()
-    for row in rows:
-        from_title = title_question(row["title"])
-        if from_title:
-            append(from_title, row["url"], "question_from_article_title", 4)
+    pending.sort(key=lambda row: (-row["priority"], row["topic"],
+                                  row["observed_at"]))
+    return {
+        "status": "questions_available" if pending else "no_new_eligible_questions",
+        "questions": pending[:int(limit)],
+        "pending_distinct_topics": len(pending),
+        "deferred_by_reason": deferred,
+        "previously_researched_questions_are_not_reused": True,
+        "network_requests_made": 0,
+        "note": ("Previously fetched research is evidence memory, not model "
+                 "training. Source-discovered terms remain unverified questions."),
+    }
 
-    candidates.sort(key=lambda x: (-x["priority"], x["topic"],
-                                    x["observed_at"]))
-    return candidates[:int(limit)]
+
+def source_questions(store, limit=8):
+    return curiosity_queue(store, limit=limit)["questions"]
 
 
 def _quiz_questions(topic):
@@ -242,12 +284,18 @@ def audit_quiz(store, maximum=24):
 
 
 def plan(store, settings, max_topics=6):
-    questions = source_questions(store, limit=max_topics)
+    progress = curiosity_queue(store, limit=max_topics)
+    questions = progress["questions"]
     approved = _inventory(store)
     ready = readiness(store)
     return {
         "status": "planned", "version": VERSION,
         "curiosity_questions": questions,
+        "curiosity_triage": {
+            "status": progress["status"],
+            "pending_distinct_topics": progress["pending_distinct_topics"],
+            "deferred_by_reason": progress["deferred_by_reason"],
+        },
         "observed_topics_already_with_definitions":
             sorted({row["topic"] for row in approved})[:50],
         "source_derived_definition_count": len(approved),
@@ -364,6 +412,7 @@ def cycle(store, settings, network=False, max_topics=6, max_requests=6,
         "network_opt_in": bool(network),
         "curiosity_question_count": len(questions),
         "curiosity_questions": questions,
+        "curiosity_triage": before["curiosity_triage"],
         "research_outcomes": work,
         "new_requests_this_cycle": sum(x.get("requests_used", 0) for x in work),
         "source_derived_quiz_bank": quiz,
@@ -454,6 +503,7 @@ def learning_report(store):
         "curiosity_questions": [
             item.get("question") for item in
             (latest.get("curiosity_questions") or [])[:12]],
+        "curiosity_triage": latest.get("curiosity_triage"),
         "research_results": [
             {"question": item.get("question"),
              "status": item.get("status"),
