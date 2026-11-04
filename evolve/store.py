@@ -463,6 +463,7 @@ class Store:
             "verified_arithmetic_documents": self.db.execute(
                 "SELECT COUNT(*) FROM documents WHERE topic='verified:arithmetic'").fetchone()[0],
             "unsupported_open_questions": self.unsupported_question_count(),
+            "last_arithmetic_evaluation": self.get("last_arithmetic_evaluation"),
             "concepts_discovered": self.db.execute("SELECT COUNT(*) FROM concept_tasks").fetchone()[0],
             "latest_promoted_model": dict(self.latest_promoted()) if self.latest_promoted() else None,
         }
