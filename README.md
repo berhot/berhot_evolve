@@ -1,6 +1,17 @@
-# BERHOT EVOLVE v0.5 — Persistent Curiosity Queue
+# BERHOT EVOLVE v0.6 — Evidence and Verified-Only Neural Training
 
 This is an **experimental learning platform**, not a self-conscious agent or general autonomous intelligence. It introduces a way to **explore public HTTPS pages without requiring a declared training license at each page**, while **separating observations from training data**. The project still uses a randomly initialized, tiny byte-level PyTorch Transformer. Concept selection is heuristic, not yet intelligent self-directed research.
+
+## Changes in v0.6
+
+- Added an independent-source **research step**: supported `What is ...?` questions are checked against definitions on two distinct publisher-domain groups. Their URLs and content hashes remain in SQLite as an audit trail.
+- Added answer checking for substantial lexical overlap, contradictory numbers and explicit negation. Other questions and disputed definitions remain open; no answer is fabricated.
+- Added a reusable-source admission gate: only corroborated answers with at least one explicit CC0/public-domain supporting page can create compact verified training examples. Unlicensed research pages remain excluded from the gradient-training dataset.
+- Added incremental **verified-only PyTorch training**, train/validation loss diagnostics, and a second training round once new verified examples arrive.
+- Added `research`, `answers`, `learn`, and `train --verified-only`. The `once` / `daemon` workflow now runs bounded research before verified-only training when exploring public sites.
+- Added offline regression tests and a GitHub Actions CPU-PyTorch integration job. Existing observations, concepts and training records are migrated in place.
+
+**Verification boundary:** Matching definitions from two distinct websites is *source corroboration*, not a guarantee of factual truth or model comprehension. This initial verifier supports short English definitional sentences only; it cannot yet resolve disputed claims, time-sensitive facts, abstract questions or complex scientific propositions. Do not use its outputs as independently certified answers in high-stakes settings.
 
 ## Changes in v0.5
 
@@ -75,6 +86,8 @@ The following URL is the user's example. The page is **not treated as licensed n
 python3 -m evolve explore --seed-url "https://www.worldometers.info/languages/english-alphabet/" --limit 8 --cross-host
 python3 -m evolve concepts --limit 20
 python3 -m evolve questions --limit 20
+python3 -m evolve research --limit 5
+python3 -m evolve answers --limit 20
 python3 -m evolve status
 python3 -m evolve discover --limit 8
 ```
@@ -84,6 +97,8 @@ python3 -m evolve discover --limit 8
 python -m evolve explore --seed-url "https://www.worldometers.info/languages/english-alphabet/" --limit 8 --cross-host
 python -m evolve concepts --limit 20
 python -m evolve questions --limit 20
+python -m evolve research --limit 5
+python -m evolve answers --limit 20
 python -m evolve status
 python -m evolve discover --limit 8
 ```
@@ -167,6 +182,39 @@ If discovery returns `Cannot verify robots.txt: [SSL: CERTIFICATE_VERIFY_FAILED]
    ```
 
    `retry-url` requeues one failed URL, retains its error history, and will **not** override an explicit robots.txt exclusion. If the same site remains blocked by `robots.txt`, HTTP restrictions, or redirects, use a different eligible source.
+
+## Research and continual learning on macOS
+
+From an activated virtual environment in your cloned project:
+
+```bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+python3 -m evolve discover --limit 8
+python3 -m evolve questions --limit 20
+python3 -m evolve research --limit 5
+python3 -m evolve answers --limit 20
+python3 -m evolve train --verified-only
+python3 -m evolve status
+```
+
+To combine question research and eligible-training into one bounded step:
+
+```bash
+python3 -m evolve learn --limit 10
+```
+
+The `once` and `daemon` controllers now also run bounded research and train from verified-only QA examples for research-only profiles. These commands **do not bypass robots.txt or site restrictions**. Evidence retrieval consumes the same daily request budget as crawling and unsuccessful questions have an attempt cooldown. Additional facts and independently accessible sources are needed to generate enough train/heldout documents. An output such as `Need >= 6 documents; have 0` is an expected, truthful training skip—not a bug.
+
+`status` separately reports `research_questions_verified`, `verified_answers_training_eligible`, `verified_neural_documents`, and the latest promoted model. In `learn`, `training.status=trained` means PyTorch executed optimization; only the actual train/heldout loss and controlled evaluations can establish model progress. This tiny byte-level model is not a reliable general knowledge answerer.
+
+Run unit tests:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+For implementation details, limitations and provenance rules, see [Evidence and Learning](docs/EVIDENCE_LEARNING.md).
 
 ## Protections against malicious sites
 

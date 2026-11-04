@@ -5,7 +5,7 @@
   "discovery_per_cycle": 8,
   "frontier_max": 5000,
   "max_linked_entities_per_source": 6,
-  "crawl_delay_seconds": 2.0,
+  "crawl_delay_seconds": 2,
   "max_response_bytes": 2000000,
   "daily_request_budget": 60,
   "max_experiments_per_cycle": 12,
@@ -16,7 +16,7 @@
     "embedding_dim": 64,
     "heads": 4,
     "layers": 2,
-    "dropout": 0.0
+    "dropout": 0
   },
   "train": {
     "steps": 60,
@@ -37,5 +37,10 @@
     "new_concepts_per_page": 3,
     "max_concepts_total": 60,
     "concept_reviews_per_cycle": 5
+  },
+  "research": {
+    "questions_per_cycle": 5,
+    "max_pages_per_question": 4,
+    "retry_cooldown_seconds": 3600
   }
 }

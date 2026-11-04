@@ -8,8 +8,8 @@ from pathlib import Path
 from .brain import build_model, get_device, load_checkpoint, require_torch, sha256_file
 
 
-def corpus_bytes(store, split):
-    rows = store.documents(split)
+def corpus_bytes(store, split, verified_only=False):
+    rows = store.documents(split, verified_only=verified_only)
     return b"\n".join(row["text"].encode("utf-8") for row in rows)
 
 
@@ -39,13 +39,14 @@ def evaluate_loss(model, val_bytes, cfg, device, seed=77):
     return sum(losses) / len(losses)
 
 
-def train_candidate(store, settings, force=False):
+def train_candidate(store, settings, force=False, verified_only=False):
     torch, _ = require_torch()
-    documents = store.documents()
+    documents = store.documents(verified_only=verified_only)
     threshold = int(settings["minimum_training_documents"])
     if len(documents) < threshold:
         return {"status": "skipped", "reason": f"Need >= {threshold} documents; have {len(documents)}"}
-    last_count = int(store.get("last_train_document_count", 0))
+    count_key = "last_train_verified_document_count" if verified_only else "last_train_document_count"
+    last_count = int(store.get(count_key, 0))
     added = len(documents) - last_count
     if not force and added < int(settings["minimum_new_documents_for_training"]):
         return {"status": "skipped", "reason": f"Only {added} new documents since last training"}
@@ -53,8 +54,8 @@ def train_candidate(store, settings, force=False):
     train_cfg = settings["train"]
     device = get_device(train_cfg.get("device", "auto"))
     block = int(cfg["block_size"])
-    train_bytes = corpus_bytes(store, "train")
-    val_bytes = corpus_bytes(store, "val")
+    train_bytes = corpus_bytes(store, "train", verified_only=verified_only)
+    val_bytes = corpus_bytes(store, "val", verified_only=verified_only)
     if min(len(train_bytes), len(val_bytes)) < block + 2:
         return {"status": "skipped", "reason": "Train or heldout document text is too short for configured block_size"}
     torch.manual_seed(int(train_cfg["seed"]))
@@ -69,6 +70,8 @@ def train_candidate(store, settings, force=False):
         baseline = evaluate_loss(model, val_bytes, train_cfg | {"block_size":block}, device)
     else:
         model = build_model(cfg).to(device)
+    pre_train_loss = evaluate_loss(model, train_bytes, train_cfg | {"block_size":block}, device)
+    pre_val_loss = evaluate_loss(model, val_bytes, train_cfg | {"block_size":block}, device)
     model.train()
     optimizer = torch.optim.AdamW(model.parameters(), lr=float(train_cfg["learning_rate"]))
     steps = int(train_cfg["steps"])
@@ -86,7 +89,9 @@ def train_candidate(store, settings, force=False):
         if time.monotonic() - start > float(train_cfg["max_seconds"]):
             break
     val_loss = evaluate_loss(model, val_bytes, train_cfg | {"block_size":block}, device)
-    promoted = baseline is None or (math.isfinite(val_loss) and val_loss + float(train_cfg["min_improvement"]) < baseline)
+    post_train_loss = evaluate_loss(model, train_bytes, train_cfg | {"block_size":block}, device)
+    promoted = math.isfinite(val_loss) and (
+        baseline is None or val_loss + float(train_cfg["min_improvement"]) < baseline)
     output = store.root / "models"
     output.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -94,11 +99,18 @@ def train_candidate(store, settings, force=False):
     cpu_weights = {key: value.detach().cpu() for key, value in model.state_dict().items()}
     torch.save({"format_version":1, "weights":cpu_weights, "model_config":cfg,
                 "train_documents":len(documents), "val_loss":val_loss,
-                "training_steps":actual_steps, "seed":int(train_cfg["seed"])}, path)
+                "training_steps":actual_steps, "seed":int(train_cfg["seed"]),
+                "verified_only":bool(verified_only), "pre_train_loss":pre_train_loss,
+                "post_train_loss":post_train_loss, "pre_val_loss":pre_val_loss}, path)
     digest = sha256_file(path)
     store.insert_model(path, digest, len(documents), val_loss, baseline, promoted)
-    store.put("last_train_document_count", len(documents))
+    store.put(count_key, len(documents))
     result = {"status": "trained", "candidate_path":str(path), "device":device,
+              "dataset_scope": "verified_only" if verified_only else "eligible_corpus",
+              "training_documents": len(documents),
+              "pre_train_loss": round(pre_train_loss, 4),
+              "post_train_loss": round(post_train_loss, 4),
+              "pre_val_loss": round(pre_val_loss, 4),
               "actual_steps": actual_steps, "val_loss":round(val_loss, 4),
               "baseline_val_loss":round(baseline, 4) if baseline is not None else None,
               "promoted":promoted, "sha256":digest}

@@ -75,6 +75,13 @@ class Store:
                 created_at TEXT NOT NULL,
                 UNIQUE(concept,question,source_url)
             );
+            CREATE TABLE IF NOT EXISTS verified_answers (
+                question_id INTEGER PRIMARY KEY REFERENCES research_questions(id),
+                concept TEXT NOT NULL, answer TEXT NOT NULL,
+                evidence_json TEXT NOT NULL, verification_method TEXT NOT NULL,
+                training_eligible INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         """)
         # Migrate existing v0.3 databases without losing discoveries.
@@ -86,6 +93,11 @@ class Store:
         # v0.4 'reviewed' meant only that questions were logged; requeue
         # those topics once so persistent open questions can be created.
         self.db.execute("UPDATE concept_tasks SET status='pending' WHERE status='reviewed'")
+        question_columns = {row[1] for row in self.db.execute("PRAGMA table_info(research_questions)")}
+        if "attempts" not in question_columns:
+            self.db.execute("ALTER TABLE research_questions ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
+        if "last_attempt_at" not in question_columns:
+            self.db.execute("ALTER TABLE research_questions ADD COLUMN last_attempt_at REAL")
         self.db.commit()
 
     def close(self):
@@ -226,6 +238,58 @@ class Store:
         return self.db.execute(
             "SELECT COUNT(*) FROM research_questions WHERE status='open'").fetchone()[0]
 
+    def next_open_questions(self, limit=5, cooldown_seconds=3600):
+        import time
+        cutoff = time.time() - max(0, float(cooldown_seconds))
+        return [dict(row) for row in self.db.execute(
+            "SELECT id,concept,question,source_url,source_title FROM research_questions "
+            "WHERE status='open' AND (last_attempt_at IS NULL OR last_attempt_at<=?) "
+            "ORDER BY id LIMIT ?", (cutoff, max(1, min(int(limit), 50))))]
+
+    def mark_question_attempt(self, question_id):
+        import time
+        self.db.execute(
+            "UPDATE research_questions SET attempts=attempts+1,last_attempt_at=? "
+            "WHERE id=? AND status='open'", (time.time(), int(question_id)))
+        self.db.commit()
+
+    def save_verified_answer(self, question_id, concept, answer, evidence, method, training_eligible=False):
+        """Persist a machine-corroborated answer; require two distinct host groups."""
+        publishers = {entry.get("publisher") for entry in evidence if entry.get("publisher")}
+        if len(publishers) < 2 or len(answer) > 300 or method != "two_source_definition_overlap_v1":
+            raise ValueError("Verification requires two distinct source groups and bounded answer")
+        question = self.db.execute(
+            "SELECT status,concept FROM research_questions WHERE id=?", (int(question_id),)
+        ).fetchone()
+        if question is None or question["status"] != "open":
+            return False
+        if question["concept"].casefold() != concept.casefold():
+            raise ValueError("Answer concept does not match source question")
+        if training_eligible and not any(item.get("license") in ("CC0-1.0", "PUBLIC-DOMAIN") for item in evidence):
+            raise ValueError("Training requires reusable evidence")
+        self.db.execute(
+            "INSERT INTO verified_answers "
+            "(question_id,concept,answer,evidence_json,verification_method,training_eligible,created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (int(question_id), concept, answer, json.dumps(evidence, ensure_ascii=False),
+             method, int(training_eligible), now()))
+        self.db.execute("UPDATE research_questions SET status='verified' WHERE id=?", (int(question_id),))
+        self.db.commit()
+        return True
+
+    def list_verified_answers(self, limit=20):
+        results = []
+        for row in self.db.execute(
+            "SELECT question_id,concept,answer,evidence_json,verification_method,"
+            "training_eligible,created_at FROM verified_answers ORDER BY question_id DESC LIMIT ?",
+            (max(1, min(int(limit),100)),)):
+            item = dict(row)
+            item["evidence"] = json.loads(item.pop("evidence_json"))
+            item["training_eligible"] = bool(item["training_eligible"])
+            results.append(item)
+        return results
+
+
 
     def recent_web_errors(self, limit=10):
         """Return recorded crawl failures without exposing scraped page contents."""
@@ -255,10 +319,19 @@ class Store:
         self.db.commit()
         return True
 
-    def documents(self, split=None):
+    def documents(self, split=None, verified_only=False):
+        where = []
+        params = []
         if split:
-            return self.db.execute("SELECT * FROM documents WHERE split=? ORDER BY id", (split,)).fetchall()
-        return self.db.execute("SELECT * FROM documents ORDER BY id").fetchall()
+            where.append("split=?")
+            params.append(split)
+        if verified_only:
+            where.append("topic='verified:definition'")
+            where.append("license='SELF-GENERATED-VERIFIED'")
+        sql = "SELECT * FROM documents"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        return self.db.execute(sql + " ORDER BY id", params).fetchall()
 
     def count(self, table):
         if table not in {"documents", "frontier", "experiences", "model_versions", "runs", "skills"}:
@@ -357,6 +430,9 @@ class Store:
             "research_questions_open": self.open_questions_count(),
             "research_questions_verified": self.db.execute(
                 "SELECT COUNT(*) FROM research_questions WHERE status='verified'").fetchone()[0],
+            "verified_answers_training_eligible": self.db.execute(
+                "SELECT COUNT(*) FROM verified_answers WHERE training_eligible=1").fetchone()[0],
+            "verified_neural_documents": len(self.documents(verified_only=True)),
             "concepts_discovered": self.db.execute("SELECT COUNT(*) FROM concept_tasks").fetchone()[0],
             "latest_promoted_model": dict(self.latest_promoted()) if self.latest_promoted() else None,
         }
