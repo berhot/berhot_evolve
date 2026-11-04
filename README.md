@@ -1497,3 +1497,53 @@ API). Existing model checkpoints and data stay on disk. Raw small-model neural
 text remains incoherent; readable source lookup is not neural reasoning.
 
 [Full setup, controls and limitations](docs/LEARNING_STUDIO_V118.md).
+
+
+## BERHOT EVOLVE v1.19 — Curiosity Loop and source-based self-study
+
+**The source mode was only reading three saved science articles**. Asking
+`moon` returned nothing because there was no moon article. V1.19 adds a
+deliberately bounded *research from a user question* pathway.
+
+```bash
+python3 -m evolve studio --port 8787
+```
+
+Open <http://127.0.0.1:8787> and use **Curiosity** chat (now the default).
+Ask **moon**. The system first searches rights-reviewed local articles, then
+checks its previously recorded research. If still unknown, it queues a
+background research job: up to two HTTPS pages, honoring robots, public DNS
+checks, timeouts and daily quota, with NASA Moon Facts and the corresponding
+Wikipedia topic as initial candidates. On completion, it shows a short literal
+excerpt and a source link; it does not invent an answer or claim neural
+understanding. It caches provenance and the excerpt locally, and keeps any new
+archive with `UNKNOWN` rights excluded from training unless independently
+reviewed. This is public information retrieval and cache, **not** a neural
+weight update.
+
+**Train from already rights-approved books** with **Teach from approved text**.
+The system mechanically creates literal reading-completion examples, with
+host-based train/validation/test splits, an immutable training manifest,
+candidate checkpoints and validation checks. It does not pretend these
+automatically generated exercises are verified factual question-answer
+examples. The supervised model still may produce nonsensical text.
+
+Alternatively:
+
+```bash
+python3 -m evolve v119-research --question "moon"
+python3 -m evolve v119-inventory
+python3 -m evolve v119-self-study
+python3 -m evolve v118-qa-readiness
+python3 -m evolve v119-study-train --steps 60
+python3 -m evolve model-audit
+```
+
+The existing **Enable auto checks** option (off until you click it) now also
+automatically processes a new approved-source corpus revision into reading
+exercises and, if there are at least eight training, two validation and two
+test examples, can train a separate QA candidate. It never auto-approves
+newly researched pages, trains on unlicensed content, removes your existing
+checkpoints or claims that lower loss proves independent reasoning.
+
+Full guide: [Curiosity Loop v1.19](docs/CURIOSITY_V119.md).
