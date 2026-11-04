@@ -1,3 +1,59 @@
+# BERHOT EVOLVE v1.4 — Shared Three-Operation Neural Study
+
+## From the v1.3 Mac results
+
+The non-saturating linear specialist achieved **100% on all 180 scored OOD
+addition examples** across seeds 31415, 42, and 1001. The original tanh MLP
+failed most extrapolation tests. The v1.3 coefficients correspond to an
+addition rule because that rule belongs to the supplied linear function class.
+Those were repeated problem sets across seeds, not 180 independent problems.
+
+## The new experiment
+
+One small supervised neural network now learns **addition, subtraction,
+and multiplication**. It uses ordered numeric operands, a one-hot operation
+indicator and a shared MLP with three learned output heads. It does not
+call Python's calculator in the forward pass.
+
+Important supplied priors: familiar magnitudes, three known operations,
+operation-specific output scales, and smooth MLP behavior. Each operator
+uses the **same operand-pair groups**: 35 train, 10 validation, and 10 test
+unordered pairs. For nonidentical operands, both directions are kept in
+the same split, including subtraction where order changes the answer.
+Checkpoints are chosen using validation MSE; in-range test and out-of-range
+questions are evaluated only after selection. All three operations are
+reported separately, including poor or zero accuracy.
+
+Three OOD groups are unchanged from v1.2/v1.3: one operand 10–19, both
+10–19, or both 20–29. The v1.3 linear specialist is compared **only for
+addition**, because it was never trained on the other operations.
+
+### Run on Mac
+
+```bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+python3 -m evolve multiop-lab --seed 31415 --steps 800 --count 20
+python3 -m evolve multiop-predict --a 27 --b 28 --operator '+' --seed 31415
+python3 -m evolve multiop-predict --a 27 --b 28 --operator '-' --seed 31415
+python3 -m evolve multiop-predict --a 27 --b 28 --operator '*' --seed 31415
+python3 -m evolve multiop-study --seeds 31415 42 1001 --steps 800 --count 20
+python3 -m unittest discover -s tests -v
+```
+
+Each trial stores an isolated SHA-verified candidate at
+`storage/models/multiop_lab/`. When held-out validation does not improve,
+the model remains unaccepted but is available for labeled inspection.
+Old web observations, language-model checkpoints, arithmetic specialists
+and rights/training eligibility controls are unchanged.
+
+**Scientific boundary:** Good performance for these three explicitly
+taught operations does not establish general numerical reasoning,
+compositional carry handling, or learning concepts autonomously from the web.
+Earlier extrapolation problems have now been used repeatedly as
+development diagnostics, not untouched confirmatory benchmarks.
+
+## Previous version — v1.3
 # BERHOT EVOLVE v1.3 — Learned Linear Extrapolation Baseline
 
 ## The actual Mac result
