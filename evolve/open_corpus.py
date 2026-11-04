@@ -193,9 +193,22 @@ def corpus_seed(store, urls, cross_host=True):
         profile.pop(key, None)
     store.put("web_source_profile", profile)
     added = sum(int(store.add_web_url(url, depth=0)) for url in canonical)
+    # RFC 2606 example domains are legitimate URL syntax but deliberately
+    # illustrative: warn rather than incorrectly treating them as research
+    # content. Do not silently rewrite/remove the user's queue.
+    placeholders = [
+        url for url in canonical
+        if (urlsplit(url).hostname or "").casefold()
+        in {"example.org", "example.net", "example.com"}
+    ]
     return {
         "status": "queued", "submitted": len(canonical),
         "new_queue_urls": added, "cross_host": bool(cross_host),
         "mode": "research_only",
+        "illustrative_domains_queued": placeholders,
+        "warning": (
+            "Example domains are reserved for documentation and provide no "
+            "meaningful training corpus; seed actual content pages instead."
+            if placeholders else None),
         "note": "No network requests; queued URLs may be skipped by robots/security rules.",
     }

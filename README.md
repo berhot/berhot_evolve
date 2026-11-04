@@ -1,3 +1,41 @@
+# BERHOT EVOLVE v1.12.1 — Correct Audit & Isolated Corpus Crawl
+
+## Fixes from actual Mac diagnostic output
+
+- A general language checkpoint with `promoted=1` was incorrectly
+  reported as `accepted_by_validation=false` because the audit read
+  an absent `accepted` field. `model-audit` now explicitly reports
+  `promoted: true` from the original general registry and uses
+  `accepted_by_validation: null` when that particular decision
+  was never recorded. SHA256 verification remains unchanged.
+- `corpus-crawl` used to generate research questions from an older
+  pending-concept backlog, even when zero pages were fetched due to
+  a spent UTC daily quota. It now runs in corpus-only mode with
+  `questions_created: 0` and
+  `question_review_mode: disabled_for_corpus_only`.
+  Normal discovery and autonomous research cycles retain their
+  existing backlog-review behavior.
+- No model checkpoint or existing corpus/SQLite data is erased.
+
+## Mac commands
+
+```bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+python3 -m evolve model-audit
+python3 -m evolve research-health
+python3 -m evolve corpus-crawl --limit 5
+python3 -m evolve corpus-status
+```
+
+The corpus-crawl command still respects the shared UTC daily budget
+and fetches zero pages until quota is available.
+The example.org and example.net domains in earlier examples are
+reserved illustrative domains, not real educational datasets.
+Queue real public HTTPS pages whose content you wish to study.
+Fetching, collecting, and training are separate actions.
+
+## Previous version — v1.12
 # BERHOT EVOLVE v1.12 — Broad Public Web Corpus + Honest Model Audit
 
 ## Major correction: collection is not neural training
