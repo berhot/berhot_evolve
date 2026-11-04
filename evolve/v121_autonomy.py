@@ -528,6 +528,11 @@ def learning_report(store):
             "accepted_after_validation":
                 bool(latest.get("accepted_neural_weights")),
             "heldout_test": training.get("test_after"),
+            "neural_vs_lexical_heldout_benchmark":
+                training.get("benchmark"),
+            "outperformed_lexical_on_test":
+                (training.get("benchmark") or {}).get(
+                    "outperformed_lexical_on_unseen_test_hosts"),
             "requires_three_independent_host_partitions": True,
         },
         "missing_to_train_at_last_cycle": missing,
