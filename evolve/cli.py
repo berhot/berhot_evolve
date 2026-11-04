@@ -51,6 +51,23 @@ def main(argv=None):
                                  help="Spend research budget only on a specific eligible concept")
     research_plan = sub.add_parser("research-plan", help="Offline preview of the exact concept's source candidates and publisher groups")
     research_plan.add_argument("--concept", required=True)
+    web_inventory = sub.add_parser("web-inventory", help="Curate archived articles and report exclusion reasons without training")
+    web_inventory.add_argument("--include-unknown-rights", action="store_true")
+    web_freeze = sub.add_parser("web-freeze", help="Build SHA256-frozen article train/val/test byte shards; no neural training")
+    web_freeze.add_argument("--include-unknown-rights", action="store_true")
+    web_freeze.add_argument("--diagnostic-within-document", action="store_true")
+    web_lab = sub.add_parser("web-lab", help="One-shot frozen web corpus to trained neural checkpoint + heldout evaluation")
+    web_lab.add_argument("--steps", type=int, default=60)
+    web_lab.add_argument("--seed", type=int, default=31415)
+    web_lab.add_argument("--device", choices=["cpu", "mps", "cuda", "auto"], default="cpu")
+    web_lab.add_argument("--include-unknown-rights", action="store_true")
+    web_lab.add_argument("--diagnostic-within-document", action="store_true")
+    web_evaluate = sub.add_parser("web-evaluate", help="Check frozen shard and neural checkpoint hashes then re-evaluate without training")
+    web_evaluate.add_argument("--accepted", action="store_true")
+    web_predict = sub.add_parser("web-predict", help="Generate from saved web-trained neural weights, not database retrieval")
+    web_predict.add_argument("--prompt", required=True)
+    web_predict.add_argument("--new-bytes", type=int, default=120)
+    web_predict.add_argument("--accepted", action="store_true")
     learn_parser = sub.add_parser("learn", help="Research and train only on verified eligible answers")
     learn_parser.add_argument("--limit", type=int, default=10)
     learn_parser.add_argument("--force", action="store_true", help="Ignore new verified example threshold")
@@ -287,6 +304,26 @@ def main(argv=None):
             elif args.command == "research-plan":
                 from .research_diagnostics import research_plan
                 result = research_plan(store, settings, concept=args.concept)
+            elif args.command == "web-inventory":
+                from .web_lab import web_inventory
+                result = web_inventory(store, include_unknown=args.include_unknown_rights)
+            elif args.command == "web-freeze":
+                from .web_lab import freeze_dataset
+                result = freeze_dataset(store, include_unknown=args.include_unknown_rights,
+                                        diagnostic=args.diagnostic_within_document)
+            elif args.command == "web-lab":
+                from .web_lab import train_web_lab
+                result = train_web_lab(store, settings, steps=args.steps,
+                                       seed=args.seed, device=args.device,
+                                       include_unknown=args.include_unknown_rights,
+                                       diagnostic=args.diagnostic_within_document)
+            elif args.command == "web-evaluate":
+                from .web_lab import evaluate_web_lab
+                result = evaluate_web_lab(store, candidate=not args.accepted)
+            elif args.command == "web-predict":
+                from .web_lab import predict_web_lab
+                result = predict_web_lab(store, args.prompt, candidate=not args.accepted,
+                                         max_new_bytes=args.new_bytes)
             elif args.command == "learn":
                 from .research import research_questions
                 from .training import train_candidate
