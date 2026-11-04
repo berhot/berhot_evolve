@@ -265,7 +265,8 @@ def main(argv=None):
                 result = corpus_seed(store, args.urls, cross_host=not args.same_host)
             elif args.command == "corpus-crawl":
                 from .web_discovery import discover_web
-                result = discover_web(store, settings, limit=args.limit)
+                result = discover_web(store, settings, limit=args.limit,
+                                      review_questions=False)
             elif args.command == "errors":
                 result = {"errors": store.recent_web_errors(args.limit)}
             elif args.command == "retry-url":
