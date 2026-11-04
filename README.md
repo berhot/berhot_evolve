@@ -1,3 +1,75 @@
+# BERHOT EVOLVE v1.6 — Audit Learned Coefficients vs Polynomial Basis
+
+## Actual Mac result from v1.5
+
+The learned-bilinear network achieved 100% on in-range and 10–19 pairs
+for all three operations, but the 50–99 three-seed mean accuracy fell to
+**0% addition, 64.0% subtraction, and 26.3% multiplication**.
+For seed 31415, it predicted **27 × 28 = 755**, not 756.
+
+The v1.5 network has a very useful mathematical property: because its
+hidden interaction multiplies *affine functions* of both operands, the
+entire neural model is exactly a degree-2 expression:
+
+    c0 + c1*(a/9) + c2*(b/9) + c3*(a/9)*(b/9)
+
+That function class can represent +, - and * perfectly. Thus its larger
+number failures can result from **small learned coefficient errors**
+magnified at large inputs, not lack of representational capacity.
+
+## Two controlled tools
+
+1. `basis-audit` reads your existing v1.5 checkpoint without retraining.
+   It algebraically extracts the four effective coefficients per operation,
+   compares them to exact mathematical reference coefficients, and breaks
+   down how each coefficient contributes to a sample prediction error.
+   Reference coefficients are part of the *audit*, never injected into
+   neural weights.
+2. `basis-lab` independently fits a trainable linear neural output layer
+   using the explicit [1,x,y,x*y] **polynomial feature basis** and
+   **double-precision least squares** on ONLY the 35 train groups.
+   This is supervised parameter fitting, NOT neural gradient descent,
+   and the polynomial basis explicitly contains a multiplication feature.
+   It is an idealized numerical reference, not emergent reasoning.
+
+Validation is disjoint; the test and OOD evaluation are performed only
+after fitting. Along with the old ranges, two further groups of operands
+100–199 and 500–999 are included to expose tiny coefficient errors.
+Saved v1.5 checkpoints are evaluated read-only on exactly matching probes.
+
+### Mac commands
+
+```bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+
+# First diagnose v1.5's original learned coefficients (does not train):
+python3 -m evolve basis-audit --seed 31415 --a 27 --b 28
+
+# Fit an explicit polynomial-basis baseline from only 0–9 examples:
+python3 -m evolve basis-lab --seed 31415 --count 20
+
+# Compare the new model and frozen v1.5 across every predeclared seed:
+python3 -m evolve basis-study --seeds 31415 42 1001 --count 20
+
+# Read an actual prediction from the saved fitted reference:
+python3 -m evolve basis-predict --a 999 --b 998 --operator '*' --seed 31415
+
+python3 -m unittest discover -s tests -v
+```
+
+New checkpoints are saved independently under `storage/models/basis_lab/`
+with SHA256 integrity checks. No previous model weights, training rights
+or web observations are changed.
+
+**Interpretation:** A highly accurate polynomial reference demonstrates
+that the correct rule fits within the architecture and that a stable fit
+can recover its coefficients from supervised examples. It does not prove
+that EVOLVE's general language model learned multiplication, invented
+the basis autonomously, or extrapolated with a neural learning algorithm.
+Repeated OOD probes are development diagnostics, not pristine benchmarks.
+
+## Previous version — v1.5
 # BERHOT EVOLVE v1.5 — Learned Bilinear Interactions
 
 ## What the Mac's v1.4 results show
