@@ -22,7 +22,8 @@ from .v117 import train as train_language, prepare
 from .v118_core import (ask, add_qa_example, train_qa, qa_readiness,
                         curriculum)
 from .v119_curiosity import (smart_lookup, research as research_topic,
-                             sentence_lessons, inventory as curiosity_inventory)
+                             sentence_lessons, inventory as curiosity_inventory,
+                             budget_status)
 
 HOST = "127.0.0.1"
 MAX_BODY = 16384
@@ -87,6 +88,7 @@ class LearningController:
             job = store.get("v118_last_job")
             history = store.get("v118_job_history", []) or []
             curiosity = curiosity_inventory(store)
+            budget = budget_status(store, self.settings)
             if job and job["status"] == "running":
                 # If the process restarted, persisted 'running' is stale.
                 if not current_job:
@@ -104,6 +106,10 @@ class LearningController:
                             elapsed * (target - done) / done, 1)
             return {
                 "status": "online", "time_utc": _utc(),
+                "studio_backend_version": "1.19.2",
+                "studio_api_version": 2,
+                "supported_chat_modes": ["auto", "sources", "char", "byte_bpe", "qa"],
+                "research_budget": budget,
                 "server_uptime_seconds": int(time.monotonic() - self.started_at),
                 "archived_pages": int(rows["pages"]),
                 "archived_characters": int(rows["chars"]),
@@ -171,7 +177,7 @@ class LearningController:
         store = self._store()
         try:
             if mode == "auto":
-                result = smart_lookup(store, question)
+                result = smart_lookup(store, question, self.settings)
             else:
                 result = ask(store, question, mode)
         finally:
@@ -401,7 +407,7 @@ class LearningController:
 
 def _handler(controller, token, origin):
     class StudioHandler(BaseHTTPRequestHandler):
-        server_version = "BERHOT-Studio/1.18"
+        server_version = "BERHOT-Studio/1.19.2"
         def _headers(self, code, content_type):
             self.send_response(code)
             self.send_header("Content-Type", content_type)
@@ -495,8 +501,20 @@ def serve(settings, port=8787, interval=3600):
     control = LearningController(settings, interval=interval)
     token = secrets.token_hex(32)
     origin = f"http://{HOST}:{port}"
-    server = ThreadingHTTPServer((HOST, port), _handler(control, token, origin))
+    try:
+        server = ThreadingHTTPServer((HOST, port), _handler(control, token, origin))
+    except OSError as exc:
+        control.shutdown()
+        if getattr(exc, "errno", None) == 48:
+            raise RuntimeError(
+                f"Port {port} is already used by another process. "
+                f"Stop the previous BERHOT Studio with Ctrl+C, or inspect "
+                f"its PID with: lsof -nP -iTCP:{port} -sTCP:LISTEN. "
+                f"Do not run two Studio servers against the same storage."
+            ) from exc
+        raise
     print(f"BERHOT Learning Studio: {origin}", flush=True)
+    print("Backend 1.19.2 / API 2; chat modes: auto, sources, char, byte_bpe, qa.", flush=True)
     print("Local-only. Press Ctrl+C to stop; automatic training runs only while Studio remains open.", flush=True)
     try:
         server.serve_forever(poll_interval=0.25)
