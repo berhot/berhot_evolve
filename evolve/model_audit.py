@@ -7,7 +7,7 @@ from importlib.util import find_spec
 from pathlib import Path
 import hashlib
 
-from .settings import ROOT
+from .settings import ROOT, load_config
 
 
 def _digest(path):
@@ -39,7 +39,8 @@ def _checkpoint(record, root):
     }
 
 
-def audit_model_and_ownership(store):
+def audit_model_and_ownership(store, settings=None):
+    settings = settings or load_config()
     definitions = int(store.db.execute(
         "SELECT COUNT(*) FROM verified_answers WHERE training_eligible=1"
     ).fetchone()[0])
@@ -104,7 +105,7 @@ def audit_model_and_ownership(store):
         "autonomy": {
             "manual_commands": "research, discover, train and specialized labs",
             "automatic_cycle_available": "python3 -m evolve daemon",
-            "configured_cycle_seconds": 3600,
+            "configured_cycle_seconds": max(60, int(settings["daemon"]["poll_seconds"])),
             "daemon_running_now": "unknown_from_database",
             "neural_weights_update_when_pages_are_saved": False,
             "neural_weights_update_when_training_runs": True,
