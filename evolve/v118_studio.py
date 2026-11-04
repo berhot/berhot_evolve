@@ -27,6 +27,7 @@ from .v119_curiosity import (smart_lookup, research as research_topic,
                              budget_status)
 from .v120_grounded import (grounded_answer, train_ranker,
                             readiness as ranker_readiness)
+from .v121_autonomy import cycle as autonomous_cycle
 
 HOST = "127.0.0.1"
 MAX_BODY = 16384
@@ -87,6 +88,7 @@ class LearningController:
             v117 = store.get("v117_latest")
             qa_model = store.get("v118_qa_latest")
             grounded_ranker = store.get("v120_ranker_latest")
+            previous_autonomy = store.get("v121_last_cycle") or {}
             qa_plan = qa_readiness(store) if (qa_examples or auto_lessons) else {
                 "status": "needs_source_grounded_examples"}
             job = store.get("v118_last_job")
@@ -110,7 +112,7 @@ class LearningController:
                             elapsed * (target - done) / done, 1)
             return {
                 "status": "online", "time_utc": _utc(),
-                "studio_backend_version": "1.20.0",
+                "studio_backend_version": "1.21.0",
                 "studio_api_version": 3,
                 "supported_chat_modes": ["auto", "grounded", "sources", "char", "byte_bpe", "qa"],
                 "research_budget": budget,
@@ -125,6 +127,17 @@ class LearningController:
                 "research_attempts": curiosity["research_attempts"],
                 "recent_learning_events": curiosity["recent_learning_events"],
                 "qa_training_readiness": qa_plan,
+                "v121_autonomous_learning": {
+                    "last_status": previous_autonomy.get("status"),
+                    "questions_asked": previous_autonomy.get("curiosity_question_count", 0),
+                    "research_requests": previous_autonomy.get("new_requests_this_cycle", 0),
+                    "source_quiz": {
+                        "pass": (previous_autonomy.get("local_quiz_audit") or {}).get("pass"),
+                        "tested": (previous_autonomy.get("local_quiz_audit") or {}).get("tested"),
+                    },
+                    "neural_training": (previous_autonomy.get("neural_training") or {}).get("status"),
+                    "understanding_proven": False,
+                },
                 "v120_grounded_ranker": {
                     "sha256": grounded_ranker["sha256"],
                     "steps": grounded_ranker["actual_training_steps"],
@@ -153,13 +166,14 @@ class LearningController:
                     "last_check_utc": last_check_at, "interval_seconds": self.interval,
                     "minimum_training_articles": 12,
                     "minimum_training_bytes": 60000,
-                    "network_crawl_in_auto_mode": False,
+                    "network_crawl_in_auto_mode": True,
+                    "network_crawl_limit_per_daily_autonomous_cycle": 6,
                     "source_study_when_new_approved_articles": True,
                     "grounded_ranker_on_new_approved_sources": True,
                     "network_research_triggered_by_auto_chat": True,
                     "rights_auto_approval": False,
                     "new_dataset_required": True,
-                    "note": "Only while this local server runs. Checks new reviewed data and starts bounded experiments; not independently chosen research goals.",
+                    "note": "Only while this local server runs. Operator-enabled automated cycles choose source-observed research words; max 6 public HTTPS requests per daily cycle, within shared budget and robots policy; rights are never auto-approved.",
                 },
             }
         finally:
@@ -236,15 +250,15 @@ class LearningController:
                 "warning": "Only detects new eligible datasets and trains bounded experiments. Does not approve rights or gather new sites by itself."}
 
     def submit(self, kind, steps=None, automatic=False, question=None):
-        if kind not in ("language", "qa", "crawl", "research", "self-study", "grounded-ranker"):
-            raise ValueError("Allowed jobs: language, qa, crawl, research, self-study, grounded-ranker")
+        if kind not in ("language", "qa", "crawl", "research", "self-study", "grounded-ranker", "curiosity-cycle"):
+            raise ValueError("Allowed jobs: language, qa, crawl, research, self-study, grounded-ranker, curiosity-cycle")
         if kind == "research" and (not isinstance(question, str) or
                                     not 1 <= len(question.strip()) <= 180):
             raise ValueError("Research requires a short question")
         if steps is None:
             steps = (120 if kind in ("language", "grounded-ranker")
                      else 60 if kind in ("qa", "self-study")
-                     else 2 if kind == "research" else 5)
+                     else 2 if kind == "research" else 4 if kind == "curiosity-cycle" else 5)
         steps = _safe_int(steps, 1, 500 if kind != "crawl" else 10)
         with self.lock:
             if self.active is not None and self.active.is_alive():
@@ -302,6 +316,12 @@ class LearningController:
                 progress("definition_training_readiness", 0, steps, None)
                 result = train_ranker(store, self.settings, steps=steps,
                                       progress=progress)
+            elif job["kind"] == "curiosity-cycle":
+                progress("discovering_source_concepts", 0, steps, None)
+                result = autonomous_cycle(
+                    store, self.settings, network=True,
+                    max_topics=min(12, steps), max_requests=min(6, steps),
+                    steps=120, progress=progress)
             elif job["kind"] == "self-study":
                 progress("extracting_source_exercises", 0, steps, None)
                 mined = sentence_lessons(store)
@@ -340,6 +360,11 @@ class LearningController:
                     "dataset_sha256": res.get("dataset_sha256"),
                     "previous_checkpoints_unchanged":
                         res.get("previous_checkpoints_unchanged"),
+                    "quiz_pass": (res.get("local_quiz_audit") or {}).get("pass"),
+                    "quiz_total": (res.get("local_quiz_audit") or {}).get("tested"),
+                    "neural_training_status":
+                        (res.get("neural_training") or {}).get("status"),
+                    "research_requests": res.get("new_requests_this_cycle"),
                 }
                 del job["result"]
             try:
@@ -413,6 +438,18 @@ class LearningController:
                     store = None
                     self.submit("grounded-ranker", steps=120, automatic=True)
                     continue
+                # Opt-in Studio monitor: once per UTC day, ask questions
+                # derived from stored observations and attempt a bounded
+                # network-curiosity study. No automatic rights admission.
+                day = now.strftime("%Y-%m-%d")
+                if store.get("v121_auto_cycle_day") != day:
+                    store.put("v121_auto_cycle_day", day)
+                    store.log("v121_auto_check", "curiosity_cycle_requested",
+                              {"utc_day": day, "max_requests": 6})
+                    store.close()
+                    store = None
+                    self.submit("curiosity-cycle", steps=6, automatic=True)
+                    continue
                 if (info["ready_for_independent_training"] and
                     new_sha and (not last or last["dataset_sha256"] != new_sha)
                     and eligible >= 12 and train_bytes >= 60000):
@@ -443,7 +480,7 @@ class LearningController:
 
 def _handler(controller, token, origin):
     class StudioHandler(BaseHTTPRequestHandler):
-        server_version = "BERHOT-Studio/1.20"
+        server_version = "BERHOT-Studio/1.21"
         def _headers(self, code, content_type):
             self.send_response(code)
             self.send_header("Content-Type", content_type)
@@ -550,7 +587,7 @@ def serve(settings, port=8787, interval=3600):
             ) from exc
         raise
     print(f"BERHOT Learning Studio: {origin}", flush=True)
-    print("Backend 1.20.0 / API 3; chat modes: auto, grounded, sources, char, byte_bpe, qa.", flush=True)
+    print("Backend 1.21.0 / API 3; chat modes: auto, grounded, sources, char, byte_bpe, qa.", flush=True)
     print("Local-only. Press Ctrl+C to stop; automatic training runs only while Studio remains open.", flush=True)
     try:
         server.serve_forever(poll_interval=0.25)
