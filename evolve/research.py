@@ -135,7 +135,40 @@ def research_questions(store, settings, limit=None, fetcher=None, sleep_fn=time.
     cache = {}
     used_key = "web_requests_" + time.strftime("%Y-%m-%d", time.gmtime())
     daily = int(settings.get("daily_request_budget", 60))
-    for question in selected:
+    if daily < 0:
+        raise ValueError("Daily request budget cannot be negative")
+    # When quota has run out, return before marking any question attempted.
+    # Previous behavior consumed attempt/cooldown for every selected question
+    # despite not fetching a single source.
+    if int(store.get(used_key, 0)) >= daily:
+        report.update({
+            "status": "blocked", "stop_reason": "daily_budget_exhausted",
+            "open_questions": store.open_questions_count(),
+            "deferred_due_to_budget": len(selected),
+        })
+        return report
+    if not selected:
+        supported_count = store.db.execute(
+            "SELECT COUNT(*) FROM research_questions "
+            "WHERE status='open' AND question LIKE 'What is %?'"
+        ).fetchone()[0]
+        report.update({
+            "status": "blocked",
+            "stop_reason": ("retry_cooldown_active" if supported_count
+                            else "no_supported_open_questions"),
+            "open_questions": store.open_questions_count(),
+            "deferred_due_to_budget": 0,
+        })
+        return report
+    report["status"] = "completed"
+    report["stop_reason"] = None
+    report["deferred_due_to_budget"] = 0
+    for q_index, question in enumerate(selected):
+        if int(store.get(used_key, 0)) >= daily:
+            report["status"] = "budget_exhausted"
+            report["stop_reason"] = "daily_budget_exhausted"
+            report["deferred_due_to_budget"] = len(selected) - q_index
+            break
         question_id = question["id"]
         store.mark_question_attempt(question_id)
         report["attempted_questions"] += 1
@@ -146,10 +179,12 @@ def research_questions(store, settings, limit=None, fetcher=None, sleep_fn=time.
         concept = match.group(1).casefold()
         candidates = []
         sources = candidate_urls(store, concept, question["source_url"], cross_host)
+        budget_blocked_during_question = False
         for url in sources[:max_pages]:
             if url not in cache:
                 consumed = int(store.get(used_key, 0))
                 if consumed >= daily:
+                    budget_blocked_during_question = True
                     break
                 store.put(used_key, consumed + 1)
                 report["source_requests"] += 1
@@ -193,8 +228,10 @@ def research_questions(store, settings, limit=None, fetcher=None, sleep_fn=time.
             reason = ("no_definition_found" if not candidates else
                       "single_publisher_only" if count < 2 else
                       "definitions_do_not_agree")
-            if int(store.get(used_key, 0)) >= daily:
+            if budget_blocked_during_question:
                 reason = "daily_budget_exhausted"
+                report["status"] = "budget_exhausted"
+                report["stop_reason"] = "daily_budget_exhausted"
             if len(report["question_outcomes"]) < 20:
                 report["question_outcomes"].append({
                     "question_id": question_id, "concept": concept, "outcome": reason,
