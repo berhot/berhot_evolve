@@ -513,6 +513,72 @@ def train_ranker(store, settings, steps=120, seed=31415, progress=None):
     return record
 
 
+
+def diagnose_corpus(store, question=None):
+    """Read-only coverage: report exactly which articles and hosts lack QA.
+
+    Example excerpts are diagnostic candidates only, never training labels.
+    """
+    topic = topic_from_question(question) if question else None
+    facts = _inventory(store)
+    plan = readiness(store)
+    grouped = {}
+    for f in facts:
+        grouped.setdefault(f["url"], []).append(f)
+    sources = store.db.execute(
+        "SELECT url,title,host,rights_status,noai FROM web_corpus_sources "
+        "ORDER BY host,url LIMIT 200").fetchall()
+    source_reports = []
+    for row in sources:
+        eligible = row["rights_status"] in ("CC0-1.0", "PUBLIC-DOMAIN") and not row["noai"]
+        matches = grouped.get(row["url"], [])
+        report = {
+            "url": row["url"], "title": row["title"], "host": row["host"],
+            "rights_status": row["rights_status"],
+            "eligible_for_training": bool(eligible),
+            "extracted_definitions": len(matches),
+            "topics": sorted(set(x["topic"] for x in matches))[:12],
+            "publisher_question_topic": title_question(row["title"]),
+        }
+        if topic and eligible:
+            _source, content = _approved_text(store, row["url"])
+            term = re.compile(r"\b(?:" +
+                              "|".join(re.escape(x) for x in _term_forms(topic))
+                              + r")\b", re.I)
+            candidates = []
+            for segment in _sentences(content):
+                segment = " ".join(segment.split()).strip()
+                if (30 <= len(segment) <= 320 and term.search(segment) and
+                    not segment.casefold().startswith(_BAD_START) and
+                    not any(b in segment.casefold() for b in _BAD_BODY)):
+                    candidates.append(segment[:260])
+                if len(candidates) >= 3:
+                    break
+            report["nearby_source_passages_not_verified_qa"] = candidates
+            report["qualifying_definition_for_question"] = any(
+                x["topic"] == topic for x in matches)
+        source_reports.append(report)
+    if plan.get("counts"):
+        missing = {split: max(0, plan["minimum"][split] -
+                             plan["counts"][split]) for split in _SPLITS}
+        topic_missing = {split: max(0, plan["minimum_topics_per_split"] -
+                                   plan["unique_topics"][split])
+                         for split in _SPLITS}
+    else:
+        missing, topic_missing = {}, {}
+    return {
+        "status": "diagnosed", "question": question,
+        "topic": topic, "readiness": plan,
+        "missing_examples_by_split": missing,
+        "missing_distinct_topics_by_split": topic_missing,
+        "source_reports": source_reports,
+        "warning": ("Only previously reviewed-source snippets are shown. "
+                    "Near-miss passages are NOT approved questions, "
+                    "automatically verified facts or training examples. "
+                    "Do not approve rights without publisher evidence. "
+                    "Source-host split may change after new articles arrive."),
+    }
+
 def inventory(store):
     facts = _inventory(store)
     model = store.get("v120_ranker_latest")
