@@ -230,7 +230,7 @@ def register_exploration(store, seed_url, focus='', cross_host=False):
     return profile
 
 
-def discover_web(store,settings,limit=None,fetcher=None,sleep_fn=time.sleep):
+def discover_web(store,settings,limit=None,fetcher=None,sleep_fn=time.sleep,review_questions=True):
     """Bounded web crawl. Fetcher injection is only for tests."""
     profile=store.get('web_source_profile')
     if not profile: return {'status':'not_configured','message':'Run explore --seed-url ... or web-start ... first'}
@@ -319,29 +319,33 @@ def discover_web(store,settings,limit=None,fetcher=None,sleep_fn=time.sleep):
             store.log('web_source_error','error',{'url':url,'error':reason})
         if report['attempted']<cap and settings.get('crawl_delay_seconds',0)>0:
             sleep_fn(float(settings['crawl_delay_seconds']))
-    # Pre-semantic curiosity bootstrap: persist unanswered questions; do NOT
-    # mark these concepts as understood, validated, or model-trained.
+    # Optional backlog processing belongs to research discovery, NOT the
+    # 'corpus-crawl' command. Earlier versions reported question creation
+    # despite fetching zero pages because they processed OLD pending concepts.
     report['questions_created']=0
-    for _ in range(min(int(settings.get('web',{}).get('concept_reviews_per_cycle',5)),5)):
-        task=store.next_concept_task()
-        if task is None:break
-        topic=task['term']
-        evidence=store.concept_sources(topic)
-        source_url=task['source_url']
-        source_title=task['source_title'] or (evidence[0]['title'] if evidence else '')
-        # Keep only questions the current verifier can actually attempt.
-        # More reasoning question types are enabled when verifiers exist.
-        questions=[f'What is {topic}?']
-        created=0
-        for question in questions:
-            if store.add_research_question(topic,question,source_url,source_title):
-                created+=1
-        report['questions_created']+=created
-        store.mark_concept_task(topic,'questions_open')
-        store.log('concept_questioning','completed',{'term':topic,
-            'observed_source_count':len(evidence),'source_url':source_url,
-            'questions_added':created,
-            'note':'These are open research questions, not verified knowledge.'})
+    report['question_review_mode'] = (
+        'research_backlog_enabled' if review_questions else 'disabled_for_corpus_only')
+    if review_questions:
+        for _ in range(min(int(settings.get('web',{}).get('concept_reviews_per_cycle',5)),5)):
+            task=store.next_concept_task()
+            if task is None:break
+            topic=task['term']
+            evidence=store.concept_sources(topic)
+            source_url=task['source_url']
+            source_title=task['source_title'] or (evidence[0]['title'] if evidence else '')
+            # Keep only questions the current verifier can actually attempt.
+            # More reasoning question types are enabled when verifiers exist.
+            questions=[f'What is {topic}?']
+            created=0
+            for question in questions:
+                if store.add_research_question(topic,question,source_url,source_title):
+                    created+=1
+            report['questions_created']+=created
+            store.mark_concept_task(topic,'questions_open')
+            store.log('concept_questioning','completed',{'term':topic,
+                'observed_source_count':len(evidence),'source_url':source_url,
+                'questions_added':created,
+                'note':'These are open research questions, not verified knowledge.'})
     report['concepts_pending']=store.pending_concepts()
     report['research_questions_open']=store.open_questions_count()
     return report
