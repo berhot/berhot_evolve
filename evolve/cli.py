@@ -46,6 +46,9 @@ def main(argv=None):
     learn_parser.add_argument("--practice-limit", type=int, default=32)
     practice_parser = sub.add_parser("practice", help="Generate independently verified arithmetic QA exercises")
     practice_parser.add_argument("--limit", type=int, default=32)
+    assess_parser = sub.add_parser("assess", help="Measure exact-match accuracy on unseen arithmetic problems")
+    assess_parser.add_argument("--questions", type=int, default=10)
+    assess_parser.add_argument("--seed", type=int, default=90210)
     train_parser = sub.add_parser("train", help="Train model candidate with PyTorch")
     train_parser.add_argument("--force", action="store_true", help="Ignore new-data threshold")
     train_parser.add_argument("--verified-only", action="store_true",
@@ -104,6 +107,9 @@ def main(argv=None):
             elif args.command == "practice":
                 from .practice import practice_arithmetic
                 result = practice_arithmetic(store, limit=args.limit)
+            elif args.command == "assess":
+                from .evaluation import evaluate_arithmetic
+                result = evaluate_arithmetic(store, settings, questions=args.questions, seed=args.seed)
             elif args.command == 'explore':
                 from .web_discovery import register_exploration, discover_web
                 profile = register_exploration(store,args.seed_url,cross_host=args.cross_host)
