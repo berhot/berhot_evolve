@@ -51,6 +51,16 @@ def main(argv=None):
                                  help="Spend research budget only on a specific eligible concept")
     research_plan = sub.add_parser("research-plan", help="Offline preview of the exact concept's source candidates and publisher groups")
     research_plan.add_argument("--concept", required=True)
+    sub.add_parser("v117-plan", help="Audit available rights-declared training sources and missing hosts")
+    sub.add_parser("v117-prepare", help="Freeze and verify strict three-host train/validation/test partitions")
+    v117_train = sub.add_parser("v117-train", help="Train separate from-scratch char and original byte-BPE models")
+    v117_train.add_argument("--steps", type=int, default=120)
+    v117_train.add_argument("--seed", type=int, default=31415)
+    v117_train.add_argument("--device", choices=["cpu", "mps", "cuda", "auto"], default="cpu")
+    v117_train.add_argument("--bpe-vocab", type=int, default=320)
+    sub.add_parser("v117-evaluate", help="Read-only checkpoint-verified independent-host and generation evaluation")
+    v117_smoke = sub.add_parser("v117-smoke", help="One-command 3-host SYNTHETIC smoke test; no user checkpoint writes")
+    v117_smoke.add_argument("--steps", type=int, default=8)
     web_inventory = sub.add_parser("web-inventory", help="Curate archived articles and report exclusion reasons without training")
     web_inventory.add_argument("--include-unknown-rights", action="store_true")
     web_freeze = sub.add_parser("web-freeze", help="Build SHA256-frozen article train/val/test byte shards; no neural training")
@@ -344,6 +354,22 @@ def main(argv=None):
             elif args.command == "research-plan":
                 from .research_diagnostics import research_plan
                 result = research_plan(store, settings, concept=args.concept)
+            elif args.command == "v117-plan":
+                from .v117 import plan
+                result = plan(store)
+            elif args.command == "v117-prepare":
+                from .v117 import prepare
+                result = prepare(store)
+            elif args.command == "v117-train":
+                from .v117 import train
+                result = train(store, settings, steps=args.steps, seed=args.seed,
+                               device=args.device, bpe_vocab=args.bpe_vocab)
+            elif args.command == "v117-evaluate":
+                from .v117 import evaluate
+                result = evaluate(store)
+            elif args.command == "v117-smoke":
+                from .v117 import smoke
+                result = smoke(settings, steps=args.steps)
             elif args.command == "web-inventory":
                 from .web_lab import web_inventory
                 result = web_inventory(store, include_unknown=args.include_unknown_rights)

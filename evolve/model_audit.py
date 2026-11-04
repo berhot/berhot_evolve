@@ -78,6 +78,21 @@ def audit_model_and_ownership(store, settings=None):
             ("concept_lab", "concept_lab_latest_candidate"),
         )
     }
+    # V1.17 has an independent two-family registry and never shadows old
+    # character, byte-web or arithmetic checkpoint indexes.
+    v117 = store.get("v117_latest")
+    v117_history = store.get("v117_history", []) or []
+    v117_models = {
+        kind: {
+            "checkpoint": _checkpoint(record, store.root),
+            "tokenizer_sha256": record.get("tokenizer_sha256"),
+            "training_steps": record.get("actual_training_steps"),
+            "accepted_by_validation": record.get("accepted_by_validation"),
+            "validation_bits_per_byte_after": record.get(
+                "validation_bits_per_byte_after"),
+        }
+        for kind, record in (v117.get("candidates", {}) if v117 else {}).items()
+    }
     license_text = (ROOT / "LICENSE").read_text(encoding="utf-8")
     return {
         "status": "audited",
@@ -126,6 +141,14 @@ def audit_model_and_ownership(store, settings=None):
                 "validation_char_loss_after": store.get("char_lab_latest_candidate")["validation_char_loss_after"],
                 "diagnostic_source_leakage": store.get("char_lab_latest_candidate")["diagnostic_source_leakage"],
             } if store.get("char_lab_latest_candidate") else None),
+            "v117_strict_host_language_benchmark": {
+                "status": "trained" if v117 else "not_trained",
+                "history_run_count": len(v117_history),
+                "source_host_holdout": v117.get("source_hosts") if v117 else None,
+                "dataset_sha256": v117.get("dataset_sha256") if v117 else None,
+                "models": v117_models,
+                "semantic_coherence_proven": False,
+            },
             "web_lab_checkpoint": _checkpoint(
                 store.get("web_lab_latest_candidate"), store.root),
             "web_lab_run": ({

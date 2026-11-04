@@ -1450,3 +1450,21 @@ python3 -m evolve status
 ```
 
 The first discovery cycle after upgrading v0.4 automatically requeues older `reviewed` concept entries that had only logged questions. The open-question list does not contain answers. If `research_questions_verified` remains zero, this is accurate: evidence checking and real learning are separate future milestones.
+
+
+## BERHOT EVOLVE v1.17 — independent host + char/BPE benchmark
+
+The v1.16 Energy-only character model lowered loss after 800 steps but did not
+produce coherent English. v1.17 adds a separate **strict three-host** language
+experiment, train-only original BERHOT byte-BPE versus Unicode characters,
+quality-proxy generation probes, immutable model history, and isolated synthetic
+three-host CPU smoke tests. Existing checkpoints are kept intact.
+
+Run `python3 -m evolve v117-smoke --steps 8` for an immediate synthetic
+end-to-end test. Run `python3 -m evolve v117-plan` and
+`python3 -m evolve v117-prepare` to audit whether the real corpus has enough
+eligible distinct source hosts. Full guide: [v1.17 language benchmark](docs/LANGUAGE_BENCH_V117.md).
+
+These are controlled evaluations, not autonomous self-improvement or verified
+factual understanding. Real-site training still requires rights checks and
+independent sources; a single article must not be scored as heldout.
