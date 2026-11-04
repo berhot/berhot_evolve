@@ -110,6 +110,16 @@ def audit_model_and_ownership(store, settings=None):
                  "validation_byte_loss": float(latest["val_loss"])}
                 if latest else {"status": "none"}),
             "specialized_checkpoint_records": specialized,
+            "web_lab_checkpoint": _checkpoint(
+                store.get("web_lab_latest_candidate"), store.root),
+            "web_lab_run": ({
+                "dataset_sha256": store.get("web_lab_latest_candidate")["dataset_sha256"],
+                "actual_steps": store.get("web_lab_latest_candidate")["actual_steps"],
+                "diagnostic_source_leakage": store.get("web_lab_latest_candidate")[
+                    "diagnostic_source_leakage"],
+                "validation_byte_loss_after": store.get("web_lab_latest_candidate")[
+                    "validation_byte_loss_after"],
+            } if store.get("web_lab_latest_candidate") else None),
         },
         "autonomy": {
             "manual_commands": "research, discover, train and specialized labs",
