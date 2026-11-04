@@ -10,7 +10,7 @@ v1.12 adds a SEPARATE public HTML corpus that can collect any site
 accessible under HTTPS, public DNS, robots.txt, size/rate bounds and
 normal request rules. **The collection/archive phase does not require
 a CC0/public-domain license.** It records absent license as UNKNOWN
-instead of rejecting text solely for that reason. Raw HTML and cleaned
+instead of rejecting text solely for that reason. Decoded HTML snapshots and cleaned
 Unicode are saved under storage/web_corpus/; content-addressed SHA256
 deduplicates exact normalized copies and stores source metadata and
 publisher no-AI signals. The collector uses only Python standard library.
