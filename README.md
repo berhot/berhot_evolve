@@ -1,4 +1,84 @@
-# BERHOT EVOLVE v0.9 — Overfitting Protection and Structured Numeric Learning
+# BERHOT EVOLVE v1.0 — Operator-Blind Neural Arithmetic Comparison
+
+## What the previous experiment really demonstrated
+
+The v0.9 experiment achieved **10/10 correct** on its ten withheld
+single-digit addition pairs and **47/47 unit tests** on a Mac with Apple MPS.
+The learned digit parameters closely matched the numerical values 0..9.
+
+**Important:** v0.9 explicitly combined two learned scalar representations
+by addition; this was an architectural inductive bias, not spontaneous
+discovery of arithmetic. It was also supervised on Python-checked labels
+rather than knowledge taken from web exploration.
+
+## New in v1.0 — Can a neural network learn without the explicit sum?
+
+The new \`rule-lab\` experiment receives the same digit tokens, but its forward
+pass has **no numeric summation**:
+
+\`\`\`
+digit a, digit b -> learned embeddings -> generic MLP -> 19 answer classes
+\`\`\`
+
+The network is supervised on known examples. The input domain (0..9), output
+range (0..18), and **commutative pair canonicalization** are still supplied.
+These assumptions make the experiment easier; it is not a general mathematics
+model or a self-improving foundation model.
+
+Both experiments use 55 unordered pairs. The split for each seed is:
+
+- **35 pairs** for training.
+- **10 pairs** for validation/checkpoint selection.
+- **10 pairs** reserved for final testing, never used in training or selection.
+
+Reversed operand pairs are in the same group, preventing leakage. The
+black-box model's test accuracy is **measured, not assumed**. If its
+validation cross-entropy does not improve, its checkpoint is **not promoted**.
+Rejected candidates are nevertheless saved for inspection. Use
+`rule-predict --candidate` to inspect them, and note the returned
+`checkpoint_status: unaccepted_candidate` instead of confusing a failed
+experiment with an accepted neural model; even a low score
+is scientifically useful and highlights the value of structural priors.
+
+### Fair head-to-head on your Mac
+
+Run from the existing Git-cloned project with your \`.venv\` active:
+
+\`\`\`bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+python3 -m evolve numeric-lab --steps 400 --seed 31415
+python3 -m evolve rule-lab --steps 800 --seed 31415
+python3 -m evolve rule-predict --a 9 --b 8 --candidate
+python3 -m unittest discover -s tests -v
+\`\`\`
+
+Use the **same seed** in both commands. The rule-lab output contains
+\`explicit_additive_baseline\` only if a matching-seed v0.9 model exists.
+The new classifier's \`test_examples\` include the true number, predicted
+number, correctness and predicted-class confidence. The v0.9 checkpoint
+remains untouched. To see how split selection affects results, repeat
+both experiments on another seed, for example \`--seed 1001\`; do not
+select the best-performing seed using the final test score.
+
+### Interpretation guide
+
+- High v0.9 accuracy, lower rule-lab accuracy: the explicit addition prior
+  is doing important work. The digit-pair classifier has not generalized as
+  well from sparse labels.
+- High accuracy in both: the generic network learned the 0..9 addition
+  mapping on this finite domain. It **does not** prove extrapolation to
+  multi-digit arithmetic or new operations.
+- Low accuracy in both: inspect the train/validation loss and split,
+  model size, optimization and number of *independent* training pairs.
+
+All checkpoints are isolated in \`storage/models/rule_lab/\`,
+\`storage/models/numeric_lab/\` or existing model folders. No research-only
+webpage text is added to gradient training. Web concepts, independent
+evidence gathering and knowledge verification remain a separate,
+unfinished research track.
+
+## v0.9 — Overfitting Protection and Structured Numeric Learning
 
 ## What the real macOS results showed
 

@@ -57,6 +57,15 @@ def main(argv=None):
     numeric_predict_parser = sub.add_parser("numeric-predict", help="Predict two digits using learned numeric-lab parameters")
     numeric_predict_parser.add_argument("--a", type=int, required=True)
     numeric_predict_parser.add_argument("--b", type=int, required=True)
+    rule_parser = sub.add_parser("rule-lab", help="Train digit-pair MLP without built-in numeric summation")
+    rule_parser.add_argument("--steps", type=int, default=800)
+    rule_parser.add_argument("--seed", type=int, default=31415)
+    rule_parser.add_argument("--hidden", type=int, default=64)
+    rule_predict_parser = sub.add_parser("rule-predict", help="Predict with saved generic neural arithmetic classifier")
+    rule_predict_parser.add_argument("--a", type=int, required=True)
+    rule_predict_parser.add_argument("--b", type=int, required=True)
+    rule_predict_parser.add_argument("--candidate", action="store_true",
+                                     help="Inspect latest candidate even if validation rejected it")
     assess_parser = sub.add_parser("assess", help="Measure raw numeric formatting and exact answers on unseen arithmetic")
     assess_parser.add_argument("--questions", type=int, default=10)
     assess_parser.add_argument("--seed", type=int, default=90210)
@@ -131,6 +140,13 @@ def main(argv=None):
             elif args.command == "numeric-predict":
                 from .numeric_lab import predict_numeric_lab
                 result = predict_numeric_lab(store, args.a, args.b)
+            elif args.command == "rule-lab":
+                from .rule_lab import run_rule_lab
+                result = run_rule_lab(store, settings, steps=args.steps,
+                                      seed=args.seed, hidden=args.hidden)
+            elif args.command == "rule-predict":
+                from .rule_lab import predict_rule_lab
+                result = predict_rule_lab(store, args.a, args.b, use_candidate=args.candidate)
             elif args.command == "assess":
                 from .evaluation import evaluate_arithmetic
                 result = evaluate_arithmetic(store, settings, questions=args.questions,
