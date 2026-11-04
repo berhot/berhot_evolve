@@ -122,6 +122,37 @@ def _chunks(text, target=900):
     return unique
 
 
+def _shingles(text, n=5):
+    # Content-token n-grams are an inexpensive near-copy signal; not semantic.
+    tokens = re.findall(r"\w+", text.casefold(), re.UNICODE)
+    return set(tuple(tokens[i:i+n])
+               for i in range(max(0, len(tokens) - n + 1)))
+
+
+def _remove_near_copies(articles, threshold=0.86):
+    """Drop duplicated or highly overlapping chunks BEFORE any split assignment."""
+    all_seen = []
+    dropped = 0
+    for article in articles:
+        clean = []
+        for chunk in article["chunks"]:
+            shingles = _shingles(chunk["text"])
+            near = False
+            if shingles:
+                for existing in all_seen:
+                    overlap = len(shingles & existing)
+                    if overlap / len(shingles | existing) >= threshold:
+                        near = True
+                        break
+            if near:
+                dropped += 1
+            else:
+                all_seen.append(shingles)
+                clean.append(chunk)
+        article["chunks"] = clean
+    return dropped
+
+
 def _source_inventory(store, include_unknown=False):
     sql = (
         "SELECT s.url,s.host,s.title,s.rights_status,s.noai,"
@@ -169,7 +200,24 @@ def _source_inventory(store, include_unknown=False):
             "words": int(row["words"]), "quality_heuristic": float(row["quality_score"]),
             "chunks": chunks,
         })
-    return candidates, excluded
+    # Near-copy filtering occurs across article sources before partitioning.
+    # A duplicate phrase cannot be learned in train and scored in test.
+    dropped = _remove_near_copies(candidates)
+    if dropped:
+        excluded.append({
+            "url": "(cross-source chunks)",
+            "reason": "near_duplicate_chunks_dropped",
+            "count": dropped,
+        })
+    still_valid = []
+    for article in candidates:
+        if len(article["chunks"]) < 3:
+            excluded.append({
+                "url": article["url"], "reason": "insufficient_unique_content_chunks"
+            })
+        else:
+            still_valid.append(article)
+    return still_valid, excluded
 
 
 def web_inventory(store, include_unknown=False):
