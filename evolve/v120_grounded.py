@@ -32,7 +32,7 @@ _BAD_TOPIC = {
     "scientists", "researchers", "article", "information",
 }
 _PREDICATE = re.compile(
-    r"^(?:an?\s+|the\s+|one\s+of\s+|part\s+of\s+|"
+    r"^(?:an?\s+|the\s+|[A-Z][a-z]+(?:\x27s)?\s+|one\s+of\s+|part\s+of\s+|"
     r"made\s+of\s+|composed\s+of\s+|formed\s+from\s+|"
     r"located\s+|known\s+as\s+|called\s+|"
     r"a\s+type\s+of\s+|the\s+name\s+of\s+)", re.I
@@ -362,10 +362,6 @@ def train_ranker(store, settings, steps=120, seed=31415, progress=None):
             break
     val_after = _rank_eval(model, data["val"], torch)
     test_after = _rank_eval(model, data["test"], torch)
-    lexical_val = sum(
-        _lexical_score("What is " + parts["val"][i]["topic"] + "?", parts["val"][i])
-        >= 0 for i in range(min(len(parts["val"]), 10))) / max(
-            1, min(len(parts["val"]), 10))
     # Accept only if genuinely improved on *held-out validation* and better
     # than random ranker pair accuracy; never select based on the test score.
     accepted = (
