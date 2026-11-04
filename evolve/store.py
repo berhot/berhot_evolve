@@ -468,6 +468,8 @@ class Store:
             "rule_lab_latest_candidate": self.get("rule_lab_latest_candidate"),
             "magnitude_lab_latest": self.get("magnitude_lab_latest"),
             "magnitude_lab_latest_candidate": self.get("magnitude_lab_latest_candidate"),
+            "linear_lab_latest": self.get("linear_lab_latest"),
+            "linear_lab_latest_candidate": self.get("linear_lab_latest_candidate"),
             "concepts_discovered": self.db.execute("SELECT COUNT(*) FROM concept_tasks").fetchone()[0],
             "latest_promoted_model": dict(self.latest_promoted()) if self.latest_promoted() else None,
         }

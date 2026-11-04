@@ -1,3 +1,51 @@
+# BERHOT EVOLVE v1.3 — Learned Linear Extrapolation Baseline
+
+## The actual Mac result
+
+Your v1.2 frozen MLPs averaged **15%** exact accuracy when one operand
+was outside 0..9, and **0%** when both operands were in 10..19 or 20..29.
+Across three saved seeds, 9/180 scored OOD problems were correct (the
+probe pairs are shared across seeds). A seed-31415 model predicted about
+30 for 27+28=55, consistent with saturation of the tanh network.
+
+## The controlled v1.3 experiment
+
+A new **trainable linear layer** maps two normalized numerical operands to
+a real-valued output. It has no hardcoded addition coefficients, but the
+LINEAR function class and continuously ordered number magnitudes are strong
+explicit priors. It is designed to test whether non-saturating structure
+alone explains the difference—not whether EVOLVE has discovered mathematics.
+
+The model receives exactly the original 35 training pairs (0..9), has 10
+validation pairs for checkpoint selection, and 10 single-digit test pairs.
+Only after training/selection do we evaluate the same three OOD groups as
+v1.2 (one 10..19 operand, both 10..19, both 20..29). The already-saved
+tanh MLP is loaded and scored read-only on exactly matching questions.
+
+### Run on Mac
+
+```bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+python3 -m evolve linear-lab --seed 31415 --steps 500 --count 20
+python3 -m evolve linear-predict --a 27 --b 28 --seed 31415
+python3 -m evolve linear-study --seeds 31415 42 1001 --steps 500 --count 20
+python3 -m unittest discover -s tests -v
+```
+
+Each run includes the **learned coefficients and bias**, single-digit
+validation/test accuracy, exact-match OOD scores, signed error, and a
+frozen-checkpoint tanh comparator with source labels. No existing model
+or web-training data is overwritten. The new specialist is stored under
+`storage/models/linear_lab/`, with per-seed checkpoint hashes.
+
+**Limits:** A learned linear layer will readily represent addition because
+linearity is built into its hypothesis class. Accurate extrapolation is
+evidence for that inductive bias, not emergent general reasoning. In
+particular this test does not teach carry handling, multilingual knowledge,
+self-directed learning, or arbitrary mathematical operations.
+
+## Previous version — v1.2
 # BERHOT EVOLVE v1.2 — Frozen Model Extrapolation Audit
 
 ## Why v1.2?
