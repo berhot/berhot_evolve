@@ -32,7 +32,12 @@ Both experiments use 55 unordered pairs. The split for each seed is:
 - **10 pairs** reserved for final testing, never used in training or selection.
 
 Reversed operand pairs are in the same group, preventing leakage. The
-black-box model's test accuracy is **measured, not assumed**; even a low score
+black-box model's test accuracy is **measured, not assumed**. If its
+validation cross-entropy does not improve, its checkpoint is **not promoted**.
+Rejected candidates are nevertheless saved for inspection. Use
+`rule-predict --candidate` to inspect them, and note the returned
+`checkpoint_status: unaccepted_candidate` instead of confusing a failed
+experiment with an accepted neural model; even a low score
 is scientifically useful and highlights the value of structural priors.
 
 ### Fair head-to-head on your Mac
@@ -44,7 +49,7 @@ git pull origin main
 python3 -m pip install -e '.[train]'
 python3 -m evolve numeric-lab --steps 400 --seed 31415
 python3 -m evolve rule-lab --steps 800 --seed 31415
-python3 -m evolve rule-predict --a 9 --b 8
+python3 -m evolve rule-predict --a 9 --b 8 --candidate
 python3 -m unittest discover -s tests -v
 \`\`\`
 
