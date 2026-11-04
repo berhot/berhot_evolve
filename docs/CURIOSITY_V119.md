@@ -146,3 +146,39 @@ enable more than two safe candidate pages for well-grounded research, create
 meaningfully independently checked QA labels (not cloze alone), use a much
 larger model/corpus for coherent language, and evaluate with a frozen external
 benchmark before promoting any neural checkpoint.
+
+
+## v1.19.2 — Troubleshooting stale Studio or exhausted Moon research
+
+If the browser offers **Curiosity / auto** but the chat says
+`Unknown chat mode`, the **HTML file was updated on disk while an older
+Python server process kept running**. Git pull and pip install do not reload
+already running Python imports.
+
+1. Stop the previous Studio with **Ctrl+C** in its Terminal.
+2. Use `lsof -nP -iTCP:8787 -sTCP:LISTEN` to locate a remaining listener.
+3. Stop that listener if it is your old BERHOT process (ordinary `kill PID`).
+4. Start `python3 -m evolve studio --port 8787 --interval 60` again.
+5. Refresh `http://127.0.0.1:8787`.
+
+Check the live backend:
+
+```bash
+curl -s http://127.0.0.1:8787/api/status | python3 -c 'import json,sys; d=json.load(sys.stdin); print("Backend:",d.get("studio_backend_version")); print("Chat modes:",d.get("supported_chat_modes")); print("Research quota:",d.get("research_budget"))'
+```
+
+A properly restarted v1.19.2 server reports backend `1.19.2` and
+`auto` in `supported_chat_modes`. The UI now explicitly warns about
+old backends rather than submitting incompatible `auto` chat messages.
+
+**Research budget and retry:** `web_requests_YYYY-MM-DD` counts shared
+HTTPS requests across research/crawling, not just Moon lookups. If the
+configured UTC day has `70/70` requests used, research stops without
+attempting another network call. v1.19.2 shows the quota and next UTC
+midnight reset, and makes a formerly quota-blocked Moon query eligible
+to retry as soon as that shared budget has room, even if the one-hour
+generic failure cooldown has not yet expired. It does **not** alter,
+delete, or bypass the actual quota. A non-quota research failure still
+uses the ordinary cooldown. A cached quote is still *research memory*,
+not neural training or proof of scientific correctness.
+
