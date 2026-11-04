@@ -91,7 +91,7 @@ def extract_definition(sentence):
     # a noun definition. Explicit capitalized possessives such as
     # "Earth's natural satellite" are allowed, case-sensitively.
     defining_predicate = (_PREDICATE.match(predicate) is not None or
-                          re.match(r"^[A-Z][a-z]+'s\\s+", predicate) is not None)
+                          re.match(r"^[A-Z][a-z]+'s\s+", predicate) is not None)
     if match["verb"].casefold() in ("is", "are") and not defining_predicate:
         return None
     # Don't turn arbitrary text/navigation into supposed scientific claims.
