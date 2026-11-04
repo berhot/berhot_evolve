@@ -87,6 +87,21 @@ def main(argv=None):
                            default=[31415, 42, 1001])
     ood_study.add_argument("--count", type=int, default=20)
     ood_study.add_argument("--probe-seed", type=int, default=20261104)
+    linear_parser = sub.add_parser("linear-lab", help="Learn non-saturating numeric coefficients and audit OOD")
+    linear_parser.add_argument("--seed", type=int, default=31415)
+    linear_parser.add_argument("--steps", type=int, default=500)
+    linear_parser.add_argument("--count", type=int, default=20)
+    linear_parser.add_argument("--probe-seed", type=int, default=20261104)
+    linear_study = sub.add_parser("linear-study", help="Compare frozen OOD accuracy across predeclared seeds")
+    linear_study.add_argument("--seeds", nargs="+", type=int, default=[31415,42,1001])
+    linear_study.add_argument("--steps", type=int, default=500)
+    linear_study.add_argument("--count", type=int, default=20)
+    linear_study.add_argument("--probe-seed", type=int, default=20261104)
+    linear_predict = sub.add_parser("linear-predict", help="Predict numeric result from saved learned coefficients")
+    linear_predict.add_argument("--a", type=int, required=True)
+    linear_predict.add_argument("--b", type=int, required=True)
+    linear_predict.add_argument("--seed", type=int, default=None)
+    linear_predict.add_argument("--candidate", action="store_true")
     rule_predict_parser.add_argument("--candidate", action="store_true",
                                      help="Inspect latest candidate even if validation rejected it")
     assess_parser = sub.add_parser("assess", help="Measure raw numeric formatting and exact answers on unseen arithmetic")
@@ -191,6 +206,18 @@ def main(argv=None):
                 result = magnitude_extrapolation_study(store,
                     model_seeds=args.model_seeds, count=args.count,
                     probe_seed=args.probe_seed)
+            elif args.command == "linear-lab":
+                from .linear_lab import run_linear_lab
+                result = run_linear_lab(store, settings, seed=args.seed,
+                    steps=args.steps, count=args.count, probe_seed=args.probe_seed)
+            elif args.command == "linear-study":
+                from .linear_lab import run_linear_study
+                result = run_linear_study(store, settings, seeds=args.seeds,
+                    steps=args.steps, count=args.count, probe_seed=args.probe_seed)
+            elif args.command == "linear-predict":
+                from .linear_lab import predict_linear_lab
+                result = predict_linear_lab(store, args.a, args.b, seed=args.seed,
+                                            candidate=args.candidate)
             elif args.command == "assess":
                 from .evaluation import evaluate_arithmetic
                 result = evaluate_arithmetic(store, settings, questions=args.questions,
