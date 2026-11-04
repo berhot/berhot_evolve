@@ -67,6 +67,12 @@ class Store:
             );
             CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         """)
+        # Migrate existing v0.3 databases without losing discoveries.
+        columns = {row[1] for row in self.db.execute("PRAGMA table_info(concept_tasks)")}
+        if "priority" not in columns:
+            self.db.execute("ALTER TABLE concept_tasks ADD COLUMN priority REAL NOT NULL DEFAULT 0")
+        if "source_title" not in columns:
+            self.db.execute("ALTER TABLE concept_tasks ADD COLUMN source_title TEXT NOT NULL DEFAULT ''")
         self.db.commit()
 
     def close(self):
@@ -111,11 +117,20 @@ class Store:
                         (status,str(error)[:300] if error else None,url))
         self.db.commit()
 
-    def add_concept_task(self,term,url,max_total=60):
+    def add_concept_task(self,term,url,max_total=60,priority=0.0,source_title=''):
+        # Additional source evidence can raise priority without duplicating tasks.
+        existing = self.db.execute('SELECT priority FROM concept_tasks WHERE term=?',(term,)).fetchone()
+        if existing:
+            if float(priority)>existing['priority']:
+                self.db.execute('UPDATE concept_tasks SET priority=?,source_url=?,source_title=? WHERE term=?',
+                                (float(priority),url,source_title[:300],term))
+                self.db.commit()
+            return False
         if self.pending_concepts()>=max_total:return False
         if self.db.execute('SELECT COUNT(*) FROM concept_tasks').fetchone()[0]>=100_000:return False
-        cursor=self.db.execute('INSERT OR IGNORE INTO concept_tasks(term,source_url,created_at) VALUES(?,?,?)',
-                               (term,url,now()))
+        cursor=self.db.execute('INSERT OR IGNORE INTO concept_tasks '
+                               '(term,source_url,created_at,priority,source_title) VALUES(?,?,?,?,?)',
+                               (term,url,now(),float(priority),source_title[:300]))
         self.db.commit()
         return cursor.rowcount>0
 
@@ -134,7 +149,22 @@ class Store:
         self.db.commit()
 
     def next_concept_task(self):
-        return self.db.execute("SELECT * FROM concept_tasks WHERE status='pending' ORDER BY created_at,term LIMIT 1").fetchone()
+        return self.db.execute("SELECT * FROM concept_tasks WHERE status='pending' "
+                               "ORDER BY priority DESC,created_at,term LIMIT 1").fetchone()
+
+    def list_concept_tasks(self,limit=20):
+        return [dict(row) for row in self.db.execute(
+            "SELECT term,status,ROUND(priority,1) AS priority,source_title,source_url "
+            "FROM concept_tasks ORDER BY CASE WHEN status='pending' THEN 0 ELSE 1 END, "
+            "priority DESC,created_at LIMIT ?",(max(1,min(int(limit),100)),))]
+
+    def concept_sources(self,term):
+        """Use research observations as evidence, not only training documents."""
+        matches=[]
+        for row in self.db.execute('SELECT url,title,extracted_concepts FROM page_observations'):
+            if term in json.loads(row['extracted_concepts']):
+                matches.append({'url':row['url'],'title':row['title']})
+        return matches
 
     def mark_concept_task(self,term,status):
         self.db.execute('UPDATE concept_tasks SET status=? WHERE term=?',(status,term))
