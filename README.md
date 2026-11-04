@@ -1,4 +1,65 @@
-# BERHOT EVOLVE v0.7 — Research Diagnostics and Verified Practice
+# BERHOT EVOLVE v0.8 — Answer-Focused Training & Honest Skill Evaluation
+
+## Why v0.8 exists
+
+The first real macOS neural run achieved **5.60 → 1.66 byte-level validation loss**, yet
+scored **0/10** on unseen two-digit arithmetic. Every parsed answer was `null`.
+This means training captured common byte patterns, not usable arithmetic. v0.8
+addresses the mismatch between the training objective and the actual skill test;
+it **does not** assume the result will be correct.
+
+### New tools
+
+- `assess` now displays each **raw generated completion** (`raw_completion`),
+  `numeric_output_rate`, and exact-match accuracy. It supports both
+  unseen **in-range** questions and harder **extrapolation** questions.
+  Questions already in training **or** validation documents are excluded from probes.
+- `math-finetune` adds a separate answer-only objective: ignore loss on repeated
+  boilerplate, and optimize only the numeric answer and final newline.
+  Math checkpoints are stored separately in `storage/models/math/`;
+  the general model's checkpoints remain untouched.
+- `practice --skill single-digit-add` creates a bounded curriculum of unique,
+  Python-checked single-digit addition problems. Existing mixed arithmetic practice
+  remains available by default.
+
+**Important:** Answer-focused training can improve numeric formatting and teacher-forced
+answer loss without improving calculation accuracy. Unseen exact-match accuracy is
+the real signal. The general model and math specialist are still small neural
+sequence predictors, not algorithmic solvers.
+
+## macOS: diagnose your existing checkpoint and train a math answerer
+
+From the cloned repository with your virtual environment active:
+
+```bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+# Diagnose your v0.7 general checkpoint: raw text vs missing numeric output
+python3 -m evolve assess --questions 10 --distribution both --model-source general
+# Reuse your existing 32 independently verified mixed arithmetic documents
+python3 -m evolve math-finetune --skill mixed --steps 400
+# Compare against the same deterministic unseen problems
+python3 -m evolve assess --questions 10 --distribution both --model-source math
+```
+
+To study a much narrower, measurable first skill:
+
+```bash
+python3 -m evolve practice --skill single-digit-add --limit 64
+python3 -m evolve math-finetune --skill single-digit-add --steps 400
+python3 -m evolve assess --skill single-digit-add --distribution both --questions 10
+```
+
+The `in-range` assessment excludes saved problems while sampling operands within the
+practice range. `extrapolation` tests numbers outside it. Tests use greedy
+decoding so comparisons are reproducible for a fixed checkpoint and seed.
+`math-finetune --force` intentionally trains longer on the same corpus;
+otherwise the minimum-new-data threshold prevents unnecessary repeat runs.
+The checkpoint is only accepted for the math track if its held-out
+answer-token loss improves over the previously accepted math model.
+These metrics do not compare directly with the original **generic byte loss**.
+
+## Changes in v0.7
 
 This is an **experimental learning platform**, not a self-conscious agent or general autonomous intelligence. It introduces a way to **explore public HTTPS pages without requiring a declared training license at each page**, while **separating observations from training data**. The project still uses a randomly initialized, tiny byte-level PyTorch Transformer. Concept selection is heuristic, not yet intelligent self-directed research.
 
