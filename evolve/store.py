@@ -476,6 +476,8 @@ class Store:
             "interaction_lab_latest_candidate": self.get("interaction_lab_latest_candidate"),
             "basis_lab_latest": self.get("basis_lab_latest"),
             "basis_lab_latest_candidate": self.get("basis_lab_latest_candidate"),
+            "calibration_lab_latest": self.get("calibration_lab_latest"),
+            "calibration_lab_latest_candidate": self.get("calibration_lab_latest_candidate"),
             "concepts_discovered": self.db.execute("SELECT COUNT(*) FROM concept_tasks").fetchone()[0],
             "latest_promoted_model": dict(self.latest_promoted()) if self.latest_promoted() else None,
         }
