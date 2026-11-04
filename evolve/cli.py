@@ -76,6 +76,17 @@ def main(argv=None):
     magnitude_study.add_argument("--seeds", nargs="+", type=int, default=[31415, 42, 1001])
     magnitude_study.add_argument("--steps", type=int, default=800)
     magnitude_study.add_argument("--hidden", type=int, default=32)
+    ood = sub.add_parser("magnitude-extrapolate", help="Test frozen v1.1 weights on unseen 10..29 operands")
+    ood.add_argument("--model-seed", type=int, default=None,
+                     help="Choose a stored model by training seed; default latest")
+    ood.add_argument("--count", type=int, default=20, help="Examples in each OOD group (1..50)")
+    ood.add_argument("--probe-seed", type=int, default=20261104)
+    ood_study = sub.add_parser("magnitude-extrapolation-study",
+                               help="Audit multiple existing frozen magnitude checkpoints")
+    ood_study.add_argument("--model-seeds", nargs="+", type=int,
+                           default=[31415, 42, 1001])
+    ood_study.add_argument("--count", type=int, default=20)
+    ood_study.add_argument("--probe-seed", type=int, default=20261104)
     rule_predict_parser.add_argument("--candidate", action="store_true",
                                      help="Inspect latest candidate even if validation rejected it")
     assess_parser = sub.add_parser("assess", help="Measure raw numeric formatting and exact answers on unseen arithmetic")
@@ -171,6 +182,15 @@ def main(argv=None):
                 from .magnitude_lab import predict_magnitude_lab
                 result = predict_magnitude_lab(store, args.a, args.b,
                                                candidate=args.candidate)
+            elif args.command == "magnitude-extrapolate":
+                from .extrapolation import magnitude_extrapolate
+                result = magnitude_extrapolate(store, model_seed=args.model_seed,
+                                               count=args.count, probe_seed=args.probe_seed)
+            elif args.command == "magnitude-extrapolation-study":
+                from .extrapolation import magnitude_extrapolation_study
+                result = magnitude_extrapolation_study(store,
+                    model_seeds=args.model_seeds, count=args.count,
+                    probe_seed=args.probe_seed)
             elif args.command == "assess":
                 from .evaluation import evaluate_arithmetic
                 result = evaluate_arithmetic(store, settings, questions=args.questions,

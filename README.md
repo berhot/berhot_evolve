@@ -1,3 +1,54 @@
+# BERHOT EVOLVE v1.2 — Frozen Model Extrapolation Audit
+
+## Why v1.2?
+
+The actual v1.1 Mac experiment achieved **10/10** on withheld digit
+combinations using seed 31415. Across seeds **31415, 42, 1001** the
+model scored **10/10, 10/10, and 8/10**, averaging **93.33%**.
+All 56 local unit tests passed.
+
+That tests interpolation with known operands (0..9). It does **not**
+demonstrate the ability to add new magnitudes or two-digit numbers.
+
+v1.2 audits **unchanged, already trained v1.1 checkpoints** on:
+
+- `one_new_operand`: one number 0..9 and one number 10..19
+- `both_10_to_19`: both numbers 10..19
+- `both_20_to_29`: both numbers 20..29
+
+These probes never appear in the 0..9 training or validation data.
+Each reports exact-match accuracy after rounding the neural output,
+within-one accuracy, mean absolute error, signed bias and example failures.
+
+### Run on your Mac (no GPU retraining required)
+
+```bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+
+# Compare the actual saved checkpoints for all three seeds:
+python3 -m evolve magnitude-extrapolation-study --model-seeds 31415 42 1001 --count 20
+
+# Inspect all predictions and mistakes for one checkpoint:
+python3 -m evolve magnitude-extrapolate --model-seed 31415 --count 20
+```
+
+The audit uses saved SHA256-verifiable registered checkpoints when possible.
+Earlier v1.1 per-seed files are recovered from `storage/models/magnitude_lab/`
+and explicitly labeled `local_archive_hash_not_registry_verified`; their
+old acceptance status may not be recoverable. Future training runs register
+each model seed separately for stronger provenance.
+
+Importantly, **no weights are updated or checkpoints promoted** by these
+commands. Out-of-distribution answers are scored only after the existing
+model has already been selected. Repeated audits of the same numbers
+are development diagnostics, not a fresh confirmatory test.
+
+A model may show high within-0..9 accuracy and fail these probes because
+numeric order and magnitude are input priors, while extrapolation beyond
+the normalized training range remains an unsolved challenge.
+
+## Previous version — v1.1
 # BERHOT EVOLVE v1.1 — Neural magnitude ablation
 
 ## Why this experiment?
