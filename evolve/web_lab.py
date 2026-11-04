@@ -426,6 +426,12 @@ def train_web_lab(store, settings, steps=60, seed=31415,
     meta, streams = _read_frozen(store, frozen["dataset_sha256"])
     if any(len(streams[k]) < cfg["block_size"] + 2 for k in streams):
         return {"status": "skipped", "reason": "not_enough_bytes_for_block"}
+    # Freeze a digest of the existing general model to detect accidental
+    # interference. The web lab never loads or modifies that checkpoint.
+    active = store.latest_promoted()
+    main_before = None
+    if active and Path(active["path"]).is_file():
+        main_before = sha256_file(active["path"])
     model = build_model(cfg).to(chosen)
     train_before = _eval(model, streams["train"], cfg, chosen)
     val_before = _eval(model, streams["val"], cfg, chosen)
@@ -473,8 +479,14 @@ def train_web_lab(store, settings, steps=60, seed=31415,
     sha = sha256_file(checkpoint)
     # NOW evaluate truly withheld test bytes, without further weight updates.
     test_after = _eval(model, streams["test"], cfg, chosen, seed=398)
+    main_after = (sha256_file(active["path"]) if (
+        active and Path(active["path"]).is_file()) else None)
+    if main_before is not None and main_before != main_after:
+        raise ValueError("Existing general checkpoint changed during web lab!")
     report = {
         "status": "trained", "objective": FORMAT, "actual_steps": actual,
+        "existing_general_checkpoint_unchanged": (
+            True if main_before is not None else "no_existing_file_to_check"),
         "model_backend": "PyTorch byte-level causal Transformer",
         "checkpoint": str(checkpoint), "sha256": sha,
         "accepted_by_validation": accepted,
