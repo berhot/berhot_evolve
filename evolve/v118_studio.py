@@ -400,6 +400,19 @@ class LearningController:
                     store = None
                     self.submit("self-study", steps=60, automatic=True)
                     continue
+                # Attempt one validated evidence-ranking experiment on each
+                # revised approved corpus. Insufficient facts lead to an
+                # explicit skipped job, never repeated on the same revision.
+                if (len(revision_rows) >= 3 and
+                    revision != store.get("v120_auto_ranker_revision")):
+                    store.put("v120_auto_ranker_revision", revision)
+                    store.log("v120_auto_check", "ranking_study_requested",
+                              {"approved_sources": len(revision_rows),
+                               "revision_sha256": revision})
+                    store.close()
+                    store = None
+                    self.submit("grounded-ranker", steps=120, automatic=True)
+                    continue
                 if (info["ready_for_independent_training"] and
                     new_sha and (not last or last["dataset_sha256"] != new_sha)
                     and eligible >= 12 and train_bytes >= 60000):
