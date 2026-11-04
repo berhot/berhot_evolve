@@ -117,6 +117,28 @@ class Store:
                         (status,str(error)[:300] if error else None,url))
         self.db.commit()
 
+    def retry_failed_web_url(self, url):
+        """Requeue one failed seed after the underlying connection issue is fixed.
+
+        Never silently retry explicit robots exclusion.
+        Keep previous error text and attempts for troubleshooting.
+        """
+        row = self.db.execute(
+            "SELECT status,last_error,attempts FROM web_frontier WHERE url=?", (url,)
+        ).fetchone()
+        if row is None:
+            return {"status": "not_found", "url": url}
+        if row["status"] != "error":
+            return {"status": "not_failed", "url": url, "current_status": row["status"]}
+        reason = row["last_error"] or ""
+        if "Website disallows automated access" in reason:
+            return {"status": "blocked_by_robots", "url": url, "reason": reason}
+        self.db.execute("UPDATE web_frontier SET status='pending' WHERE url=?", (url,))
+        self.db.commit()
+        self.log("web_manual_retry", "queued", {"url": url, "previous_error": reason})
+        return {"status": "requeued", "url": url, "previous_error": reason}
+
+
     def add_concept_task(self,term,url,max_total=60,priority=0.0,source_title=''):
         # Additional source evidence can raise priority without duplicating tasks.
         existing = self.db.execute('SELECT priority FROM concept_tasks WHERE term=?',(term,)).fetchone()

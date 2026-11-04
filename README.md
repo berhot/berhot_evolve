@@ -123,6 +123,41 @@ python -m evolve status
 
 Failed URLs remain recorded as errors; `discover` does not repeatedly hammer blocked pages. Register another permitted seed if necessary. A page being readable in a regular browser does not guarantee automated crawling is permitted.
 
+## macOS SSL certificates — CERTIFICATE_VERIFY_FAILED
+
+If discovery returns `Cannot verify robots.txt: [SSL: CERTIFICATE_VERIFY_FAILED] unable to get local issuer certificate`, Python cannot validate the server's TLS certificate. Do **not** disable TLS verification.
+
+1. Check which Python installation you're using:
+
+   ```bash
+   which python3
+   python3 --version
+   python3 -c 'import ssl; print(ssl.get_default_verify_paths())'
+   ```
+
+2. If you installed Python from python.org, open the version-matched `/Applications/Python 3.x/Install Certificates.command` included with the installer. Python's macOS documentation recommends this certificate-installation step.
+
+3. Alternatively, for a session-specific CA bundle with certificate **verification still enabled**, install the maintained `certifi` bundle inside the active virtual environment:
+
+   ```bash
+   python3 -m pip install --upgrade certifi
+   export SSL_CERT_FILE="$(python3 -m certifi)"
+   python3 -c 'import urllib.request; print(urllib.request.urlopen("https://www.python.org/", timeout=10).status)'
+   ```
+
+   An HTTP status of 200 verifies that this Python session can establish a trusted HTTPS connection to python.org. If the original site still fails, check its certificate chain or a network TLS-inspection proxy. Do not assume the site is safe or try to bypass access controls. The environment setting lasts for the current shell session unless you configure it persistently.
+
+4. Retry only the previously failed seed URL after fixing the trust store:
+
+   ```bash
+   python3 -m evolve errors --limit 10
+   python3 -m evolve retry-url --url "https://www.worldometers.info/languages/english-alphabet/"
+   python3 -m evolve discover --limit 8
+   python3 -m evolve concepts --limit 20
+   ```
+
+   `retry-url` requeues one failed URL, retains its error history, and will **not** override an explicit robots.txt exclusion. If the same site remains blocked by `robots.txt`, HTTP restrictions, or redirects, use a different eligible source.
+
 ## Protections against malicious sites
 
 - Only public HTTPS names on port 443 (no IP-literal, local, or private network addresses); public DNS resolution screening is best-effort.

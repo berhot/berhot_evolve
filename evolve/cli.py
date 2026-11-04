@@ -25,6 +25,9 @@ def main(argv=None):
     explore.add_argument('--limit', type=int, default=8)
     explore.add_argument('--cross-host', action='store_true', help='Follow public links across domains within crawl budgets')
     sub.add_parser("status", help="Show persistent learner status")
+    retry_parser = sub.add_parser("retry-url", help="Retry one failed URL after correcting its connection problem")
+    retry_parser.add_argument("--url", required=True)
+
     errors_parser = sub.add_parser("errors", help="Show exact failed website URLs and stored error reasons")
     errors_parser.add_argument("--limit", type=int, default=10)
     concept_parser = sub.add_parser("concepts", help="Show discovered concepts ranked by page evidence")
@@ -58,6 +61,9 @@ def main(argv=None):
                 result = store.status()
             elif args.command == "errors":
                 result = {"errors": store.recent_web_errors(args.limit)}
+            elif args.command == "retry-url":
+                from .web_discovery import canonical_url
+                result = store.retry_failed_web_url(canonical_url(args.url))
             elif args.command == "concepts":
                 result = {"concepts": store.list_concept_tasks(args.limit)}
             elif args.command == 'explore':
