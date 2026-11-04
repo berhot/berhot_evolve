@@ -1617,3 +1617,16 @@ python3 -m evolve v121-report
 ```
 
 [Full v1.22 upgrade guide](docs/CURIOSITY_PROGRESSION_V122.md).
+
+
+## EVOLVE v1.22.1 — Cleaner autonomous topics and source-host evidence diagnosis
+
+The source-observed curiosity queue now rejects obvious organizational acronyms and low-information standalone adjectives, while preserving legitimate compound concepts (such as `natural selection`). It uses a conservative plural English question form for topics such as `continents` and `emissions`; `gas` remains singular. The `v122-evidence --host oceanservice.noaa.gov` report inspects the already-archived third-source testing publisher without network requests or rights changes. New research results clearly label rights metadata separately from actual neural training admission.
+
+```bash
+python3 -m evolve v121-plan --max-topics 8
+python3 -m evolve v122-evidence --host oceanservice.noaa.gov
+python3 -m evolve v120-readiness
+```
+
+The missing independent test data still cannot be replaced by repeated training-source quotations or unreviewed website text.
