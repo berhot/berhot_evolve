@@ -102,6 +102,24 @@ def main(argv=None):
     linear_predict.add_argument("--b", type=int, required=True)
     linear_predict.add_argument("--seed", type=int, default=None)
     linear_predict.add_argument("--candidate", action="store_true")
+    multiop = sub.add_parser("multiop-lab", help="Train one shared neural model on addition, subtraction and multiplication")
+    multiop.add_argument("--seed", type=int, default=31415)
+    multiop.add_argument("--steps", type=int, default=800)
+    multiop.add_argument("--hidden", type=int, default=64)
+    multiop.add_argument("--count", type=int, default=20)
+    multiop.add_argument("--probe-seed", type=int, default=20261104)
+    multiop_study = sub.add_parser("multiop-study", help="Run predeclared seeds across all three operations")
+    multiop_study.add_argument("--seeds", nargs="+", type=int, default=[31415,42,1001])
+    multiop_study.add_argument("--steps", type=int, default=800)
+    multiop_study.add_argument("--hidden", type=int, default=64)
+    multiop_study.add_argument("--count", type=int, default=20)
+    multiop_study.add_argument("--probe-seed", type=int, default=20261104)
+    multiop_predict = sub.add_parser("multiop-predict", help="Predict with trained shared arithmetic network")
+    multiop_predict.add_argument("--a", type=int, required=True)
+    multiop_predict.add_argument("--b", type=int, required=True)
+    multiop_predict.add_argument("--operator", choices=["+", "-", "*"], required=True)
+    multiop_predict.add_argument("--seed", type=int, default=None)
+    multiop_predict.add_argument("--candidate", action="store_true")
     rule_predict_parser.add_argument("--candidate", action="store_true",
                                      help="Inspect latest candidate even if validation rejected it")
     assess_parser = sub.add_parser("assess", help="Measure raw numeric formatting and exact answers on unseen arithmetic")
@@ -218,6 +236,20 @@ def main(argv=None):
                 from .linear_lab import predict_linear_lab
                 result = predict_linear_lab(store, args.a, args.b, seed=args.seed,
                                             candidate=args.candidate)
+            elif args.command == "multiop-lab":
+                from .multiop_lab import run_multiop_lab
+                result = run_multiop_lab(store, settings, seed=args.seed,
+                    steps=args.steps, hidden=args.hidden, count=args.count,
+                    probe_seed=args.probe_seed)
+            elif args.command == "multiop-study":
+                from .multiop_lab import run_multiop_study
+                result = run_multiop_study(store, settings, seeds=args.seeds,
+                    steps=args.steps, hidden=args.hidden, count=args.count,
+                    probe_seed=args.probe_seed)
+            elif args.command == "multiop-predict":
+                from .multiop_lab import predict_multiop_lab
+                result = predict_multiop_lab(store, args.a, args.b,
+                    operator=args.operator, seed=args.seed, candidate=args.candidate)
             elif args.command == "assess":
                 from .evaluation import evaluate_arithmetic
                 result = evaluate_arithmetic(store, settings, questions=args.questions,
