@@ -272,8 +272,9 @@ class LearningController:
                 store.close()
 
     def _monitor_loop(self):
-        while not self.stop_event.wait(self.interval if not self.auto_enabled else
-                                       min(self.interval, 5)):
+        # Wake every second so enabling a previously idle monitor takes
+        # effect promptly even when the configured interval is an hour.
+        while not self.stop_event.wait(1):
             with self.lock:
                 if not self.auto_enabled or (
                     self.active is not None and self.active.is_alive()):
