@@ -275,12 +275,24 @@ def train_qa(store, settings, steps=80, seed=31415, progress=None):
         return {"status": "skipped",
                 "reason": "qa_examples_exceed_256_byte_context", "usable": {
                     k: len(v) for k, v in samples.items()}}
-    fingerprint = _sha(_canonical_bytes({
+    qa_manifest = {
+        "format": "human_reviewed_qa_split_by_source_host_v118",
         "examples": {k: [{f: r[f] for f in (
             "question", "answer", "url", "source_sha256")}
             for r in parts[k]] for k in parts},
         "dataset_sha256": frozen["dataset_sha256"],
-    }))
+        "split_method": "source_host_holdout",
+    }
+    manifest_bytes = _canonical_bytes(qa_manifest)
+    fingerprint = _sha(manifest_bytes)
+    manifest_dir = store.root / "datasets" / "v118_qa" / fingerprint
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = manifest_dir / "manifest.json"
+    if manifest_path.exists():
+        if manifest_path.read_bytes() != manifest_bytes:
+            raise ValueError("Frozen QA dataset manifest changed")
+    else:
+        manifest_path.write_bytes(manifest_bytes)
     torch, _ = require_torch()
     torch.set_num_threads(min(4, torch.get_num_threads()))
     torch.manual_seed(int(seed))
@@ -314,6 +326,8 @@ def train_qa(store, settings, steps=80, seed=31415, progress=None):
             break
     val_after = score(samples["val"])
     accepted = math.isfinite(val_after) and val_after < val_before - 0.0001
+    # Inspect the held-out test only after validation acceptance is decided.
+    test_after = score(samples["test"])
     folder = store.root / "models" / "v118_qa"
     folder.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
@@ -329,11 +343,14 @@ def train_qa(store, settings, steps=80, seed=31415, progress=None):
     result = {
         "status": "trained", "checkpoint": str(checkpoint),
         "sha256": sha256_file(checkpoint), "actual_training_steps": actual,
-        "qa_manifest_sha256": fingerprint, "source_dataset_sha256": frozen["dataset_sha256"],
+        "qa_manifest_sha256": fingerprint,
+        "qa_manifest_path": str(manifest_path),
+        "source_dataset_sha256": frozen["dataset_sha256"],
         "train_examples": len(samples["train"]),
         "val_examples": len(samples["val"]), "test_examples": len(samples["test"]),
         "validation_answer_loss_before": round(val_before, 5),
         "validation_answer_loss_after": round(val_after, 5),
+        "test_answer_loss_after": round(test_after, 5),
         "accepted_by_validation": accepted,
         "source_hosts": frozen["source_hosts"],
         "test_used_for_selection": False,
@@ -358,6 +375,11 @@ def qa_neural_response(store, question):
                 "answer": "No accepted supervised QA model yet. Add reviewed lessons and train QA."}
     path = _within(store.root / "models" / "v118_qa",
                    record["checkpoint"])
+    qa_manifest_file = _within(store.root / "datasets" / "v118_qa",
+                               record["qa_manifest_path"])
+    raw_manifest = qa_manifest_file.read_bytes()
+    if _sha(raw_manifest) != record["qa_manifest_sha256"]:
+        raise ValueError("QA dataset manifest SHA256 mismatch")
     if sha256_file(path) != record["sha256"]:
         raise ValueError("QA checkpoint SHA256 mismatch")
     model, meta = load_checkpoint(path, map_location="cpu")
