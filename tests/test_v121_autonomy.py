@@ -49,9 +49,15 @@ SOURCES = [
 
 def populate(store, hosts=3):
     for host, facts in SOURCES[:hosts]:
+        # Distinct per-page and per-passage observations are required by
+        # the real v1.17 near-copy filter. Repeating one identical filler
+        # is correctly excluded and must not masquerade as training data.
         filler = " ".join(
-            "Researchers collected careful scientific measurements during an "
-            "extended experiment to compare environmental observations." for _ in range(90))
+            "Researchers working at " + host.split(".")[0] +
+            " measured scientific sample number " + str(i) +
+            " with instrument version " + str(i % 7) +
+            " to compare environmental observations and test their "
+            "measurement hypotheses." for i in range(95))
         text = " ".join(facts) + " " + filler
         url = "https://" + host + "/science"
         assert archive_page(
