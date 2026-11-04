@@ -26,13 +26,23 @@ def once(settings, discovery_limit=None, network=True, train=True, lab=True, fet
                     report["discovery"] = {"status":"not_configured","message":"Register a web seed using explore or web-start"}
             except Exception as error:
                 report["discovery"] = {"status":"error", "message":str(error)}
+        if network and store.get("web_source_profile"):
+            try:
+                from .research import research_questions
+                report["research"] = research_questions(store, settings, fetcher=fetcher,
+                                                        sleep_fn=sleep_fn)
+            except Exception as error:
+                report["research"] = {"status":"error", "message":str(error)}
         try:
             report["curriculum"] = expand_math_curriculum(store, settings)
         except Exception as error:
             report["curriculum"] = {"status":"error", "message":str(error)}
         if train:
             try:
-                report["training"] = train_candidate(store, settings)
+                profile = store.get("web_source_profile", {})
+                verified_only = profile.get("mode") == "research_only"
+                report["training"] = train_candidate(store, settings,
+                                                    verified_only=verified_only)
             except Exception as error:
                 report["training"] = {"status":"error", "message":str(error)}
         if lab:
