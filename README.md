@@ -1,6 +1,40 @@
-# BERHOT EVOLVE v0.6 — Evidence and Verified-Only Neural Training
+# BERHOT EVOLVE v0.7 — Research Diagnostics and Verified Practice
 
 This is an **experimental learning platform**, not a self-conscious agent or general autonomous intelligence. It introduces a way to **explore public HTTPS pages without requiring a declared training license at each page**, while **separating observations from training data**. The project still uses a randomly initialized, tiny byte-level PyTorch Transformer. Concept selection is heuristic, not yet intelligent self-directed research.
+
+## Changes in v0.7
+
+The observed macOS run found 21 websites and 51 topics, but no independently corroborated definitions suitable for training. The tests were correct; live evidence availability, not PyTorch, was the blocker.
+
+- **Better research triage:** unsupported question types no longer consume the limited source-fetch slots. New discovery queues only `What is ...?` questions, which the current lexical verifier can attempt. Older unsupported questions remain in the database as open tasks.
+- **Better evidence candidates:** looks for topic-related URLs already present in the crawler frontier and tries independent publisher-domain candidates before redundant same-site pages. Uses normal safe HTTPS/robots restrictions.
+- **Visible uncertainty:** `research` and `learn` output per-question reasons such as `no_definition_found`, `single_publisher_only`, `definitions_do_not_agree` or `daily_budget_exhausted`.
+- **Verified arithmetic practice:** `practice` generates independently checked mathematical QA examples from Python (no web content, no external license assumptions), giving the small PyTorch model real incremental training material while web corroboration remains unresolved.
+- **Real skill benchmark:** `assess` tests the promoted model's *exact-match answers to unseen arithmetic questions* with operands outside the practice range. A low or zero score is a valid result; declining byte-level loss is not arithmetic understanding.
+- **Mac warning fixed:** the optional `[train]` dependency now installs NumPy alongside PyTorch.
+
+## Run v0.7 on macOS
+
+```bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+python3 -m evolve research --limit 10
+python3 -m evolve questions --limit 20
+```
+
+To make a first verified-only neural checkpoint without pretending Worldometer text is training-eligible:
+
+```bash
+python3 -m evolve learn --limit 10 --practice-arithmetic --practice-limit 32
+python3 -m evolve assess --questions 10
+python3 -m evolve status
+```
+
+For a second, distinct batch and incremental training round, repeat `learn --practice-arithmetic`. The generated arithmetic material is explicitly marked `verified:arithmetic`; the `research_questions_verified` count remains zero unless genuine two-source web corroboration succeeds.
+
+Pure web-only learning remains available via `python3 -m evolve learn --limit 10`. For ongoing, optional internal arithmetic practice, set `practice.auto_enabled` to `true` in `config/settings.json`, or run `python3 -m evolve once --practice-arithmetic` per cycle. This arithmetic work is a separately engineered learning curriculum, **not a claim that the crawler spontaneously learned mathematics from webpages**.
+
+Run all tests with `python3 -m unittest discover -s tests -v`. GitHub Actions also tests the neural training/assessment pipeline on CPU.
 
 ## Changes in v0.6
 
