@@ -560,11 +560,16 @@ def evaluate_web_lab(store, candidate=True):
     return result
 
 
-def predict_web_lab(store, prompt, candidate=True, max_new_bytes=120):
+def predict_web_lab(store, prompt, candidate=True, max_new_bytes=120,
+                    decoding="greedy", temperature=0.9, seed=42):
     if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError("Prompt cannot be empty")
     if not 1 <= int(max_new_bytes) <= 300:
         raise ValueError("Max new bytes must be 1..300")
+    if decoding not in ("greedy", "sample"):
+        raise ValueError("Decoding must be greedy or sample")
+    if not 0.05 <= float(temperature) <= 2.0:
+        raise ValueError("Temperature must be 0.05..2.0")
     loaded = _load_web_model(store, candidate)
     if loaded is None:
         return {"status": "skipped", "reason": "No web neural checkpoint yet"}
@@ -572,9 +577,12 @@ def predict_web_lab(store, prompt, candidate=True, max_new_bytes=120):
     block = meta["model_config"]["block_size"]
     result = sample_text(model, prompt, block,
                          max_new_bytes=int(max_new_bytes), device="cpu",
-                         greedy=True)
+                         temperature=float(temperature), seed=int(seed),
+                         greedy=decoding == "greedy")
     return {
         "status": "predicted", "prompt": prompt, "neural_generation": result,
+        "decoding": decoding, "temperature": float(temperature),
+        "seed": int(seed),
         "checkpoint_sha256": record["sha256"],
         "dataset_sha256": record["dataset_sha256"],
         "method": "checkpoint_weights_only_no_source_lookup",
