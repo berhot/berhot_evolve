@@ -5,6 +5,7 @@ prove factual truth or legal training permission. Never approve sources here.
 """
 from collections import Counter
 import hashlib
+import re
 
 from .v119_curiosity import _sentences
 from .v120_grounded import extract_definition, title_question, title_evidence
@@ -13,7 +14,7 @@ from .web_lab import _within
 _RIGHTS = ("CC0-1.0", "PUBLIC-DOMAIN")
 
 
-def evidence_report(store, limit=80):
+def evidence_report(store, limit=80, host=None):
     """Audit saved article quality and candidate learning gaps, no writes/net.
 
     Research-only articles may be inspected for *counts*, but are never added
@@ -21,11 +22,25 @@ def evidence_report(store, limit=80):
     """
     if not 1 <= int(limit) <= 200:
         raise ValueError("limit must be between 1 and 200")
-    rows = store.db.execute(
+    if host is not None:
+        from urllib.parse import urlsplit
+        value = host.strip().casefold()
+        if value.startswith("https://"):
+            value = urlsplit(value).hostname or ""
+        if not value or not re.fullmatch(r"[a-z0-9][a-z0-9.-]{2,252}", value):
+            raise ValueError("host must be a hostname or HTTPS URL")
+        host = value
+    sql = (
         "SELECT s.url,s.host,s.title,s.rights_status,s.noai,s.sha256,"
         "s.rights_evidence_url,t.clean_path,t.words FROM web_corpus_sources s "
         "JOIN web_corpus_texts t ON s.sha256=t.sha256 "
-        "ORDER BY s.url LIMIT ?", (int(limit),)).fetchall()
+    )
+    if host:
+        sql += "WHERE s.host = ? "
+        params = (host, int(limit))
+    else:
+        params = (int(limit),)
+    rows = store.db.execute(sql + "ORDER BY s.url LIMIT ?", params).fetchall()
     existing = store.get("v121_last_cycle") or {}
     readiness = existing.get("heldout_readiness") or {}
     expected = readiness.get("source_hosts") or {}
@@ -104,6 +119,7 @@ def evidence_report(store, limit=80):
                if e["status"] != "approved_source_has_heuristic_definitions"]
     return {
         "status": "review_only", "sources_examined": len(rows),
+        "filtered_host": host,
         "hosts": summary, "sources": entries,
         "needs_manual_rights_review": [
             {"url": e["url"], "host": e["host"],
