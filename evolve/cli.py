@@ -32,6 +32,8 @@ def main(argv=None):
     errors_parser.add_argument("--limit", type=int, default=10)
     concept_parser = sub.add_parser("concepts", help="Show discovered concepts ranked by page evidence")
     concept_parser.add_argument("--limit", type=int, default=20)
+    question_parser = sub.add_parser("questions", help="Show stored unanswered source-grounded research questions")
+    question_parser.add_argument("--limit", type=int, default=20)
     train_parser = sub.add_parser("train", help="Train model candidate with PyTorch")
     train_parser.add_argument("--force", action="store_true", help="Ignore new-data threshold")
     sub.add_parser("lab", help="Try verifiable arithmetic experiments")
@@ -66,6 +68,8 @@ def main(argv=None):
                 result = store.retry_failed_web_url(canonical_url(args.url))
             elif args.command == "concepts":
                 result = {"concepts": store.list_concept_tasks(args.limit)}
+            elif args.command == "questions":
+                result = {"questions": store.list_research_questions(args.limit)}
             elif args.command == 'explore':
                 from .web_discovery import register_exploration, discover_web
                 profile = register_exploration(store,args.seed_url,cross_host=args.cross_host)
