@@ -34,8 +34,17 @@ def main(argv=None):
     concept_parser.add_argument("--limit", type=int, default=20)
     question_parser = sub.add_parser("questions", help="Show stored unanswered source-grounded research questions")
     question_parser.add_argument("--limit", type=int, default=20)
+    answer_parser = sub.add_parser("answers", help="Show corroborated answers with independent source proofs")
+    answer_parser.add_argument("--limit", type=int, default=20)
+    research_parser = sub.add_parser("research", help="Seek independent evidence for open questions")
+    research_parser.add_argument("--limit", type=int, default=5)
+    learn_parser = sub.add_parser("learn", help="Research and train only on verified eligible answers")
+    learn_parser.add_argument("--limit", type=int, default=10)
+    learn_parser.add_argument("--force", action="store_true", help="Ignore new verified example threshold")
     train_parser = sub.add_parser("train", help="Train model candidate with PyTorch")
     train_parser.add_argument("--force", action="store_true", help="Ignore new-data threshold")
+    train_parser.add_argument("--verified-only", action="store_true",
+                              help="Train exclusively from source-corroborated, eligible QA examples")
     sub.add_parser("lab", help="Try verifiable arithmetic experiments")
     run_parser = sub.add_parser("once", help="Run one bounded autonomous cycle")
     run_parser.add_argument("--offline", action="store_true", help="Skip internet requests")
@@ -70,6 +79,17 @@ def main(argv=None):
                 result = {"concepts": store.list_concept_tasks(args.limit)}
             elif args.command == "questions":
                 result = {"questions": store.list_research_questions(args.limit)}
+            elif args.command == "answers":
+                result = {"answers": store.list_verified_answers(args.limit)}
+            elif args.command == "research":
+                from .research import research_questions
+                result = research_questions(store, settings, limit=args.limit)
+            elif args.command == "learn":
+                from .research import research_questions
+                from .training import train_candidate
+                research_report = research_questions(store, settings, limit=args.limit)
+                result = {"research": research_report,
+                          "training": train_candidate(store, settings, force=args.force, verified_only=True)}
             elif args.command == 'explore':
                 from .web_discovery import register_exploration, discover_web
                 profile = register_exploration(store,args.seed_url,cross_host=args.cross_host)
@@ -92,7 +112,8 @@ def main(argv=None):
                     result = {'status':'not_configured','message':'Use explore --seed-url ... to initialize public web discovery'}
             elif args.command == "train":
                 from .training import train_candidate
-                result = train_candidate(store, settings, force=args.force)
+                result = train_candidate(store, settings, force=args.force,
+                                         verified_only=args.verified_only)
             elif args.command == "lab":
                 from .lab import run_math_experiments
                 result = run_math_experiments(store, settings)
