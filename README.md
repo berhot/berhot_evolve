@@ -1,3 +1,62 @@
+# BERHOT EVOLVE v1.10 — Research Budget & Cooldown Diagnostics
+
+## Why your Mac returned zero attempts
+
+User's evidence revealed 96 arithmetic documents, 21 research observations,
+30 open questions (10 definition format, 20 currently unsupported),
+zero verified text answers, and a fully consumed 60/60 UTC-day crawl budget.
+After a prior research run, all 10 eligible definition questions were
+also on the default 3600-second retry cooldown. Running `research --limit 3`
+returned 0 attempts, 0 requests, 0 new eligible definitions.
+
+**v1.10 does not fabricate verified facts, force a retry, increase the
+crawl budget, or weaken reusable-rights requirements.** Instead it fixes
+the queue's misleading behavior and makes the operational limits visible.
+
+### New read-only command
+
+```bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+python3 -m evolve research-health
+```
+
+`research-health` shows: current UTC quota and next automatic UTC reset,
+supported versus unsupported open questions, how many are currently
+blocked by cooldown, next eligible retry time, major source hosts,
+and number of rights-admitted definition training documents. Its
+`source_qualification_preview` enumerates candidate URL counts and
+distinct publisher groups for each supported concept, WITHOUT fetching
+pages. Candidate URLs are not validated sources, and their reuse rights
+remain unknown until the normal per-page checks succeed.
+
+### Safer research behavior
+
+With exhausted quota, `research` now returns
+`status: blocked, stop_reason: daily_budget_exhausted` without marking
+more questions as attempted or extending their cooldown. Once a
+nonempty quota remains, but all supported questions are cooling down,
+it reports `stop_reason: retry_cooldown_active` without extra requests.
+If the quota runs out partway through a batch, later unattempted
+questions are left untouched and the report counts them separately.
+The existing stricter per-page definition and two-publisher verification
+pipeline, explicit CC0/PUBLIC-DOMAIN page rights declarations,
+source security, and training admission remain unchanged.
+
+When `research-health` reports `ready` and remaining quota, use a small
+batch and inspect the actual findings:
+
+```bash
+python3 -m evolve research --limit 3
+python3 -m evolve research-health
+python3 -m evolve concept-inventory
+```
+
+A queue being ready is NOT evidence of verified text data. v1.9 neural
+text training remains blocked until two distinct approved
+training-split definition records have been independently verified.
+
+## Previous version — v1.9
 # BERHOT EVOLVE v1.9 — Verified Text → Neural Recall
 
 ## Why move beyond arithmetic?
