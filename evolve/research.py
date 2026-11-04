@@ -112,7 +112,8 @@ def candidate_urls(store, concept, source_url, cross_host=False):
     return urls
 
 
-def research_questions(store, settings, limit=None, fetcher=None, sleep_fn=time.sleep):
+def research_questions(store, settings, limit=None, fetcher=None,
+                       sleep_fn=time.sleep, concept=None):
     """Fetch sources, corroborate strict definitions, persist citeable answers.
 
     Web budget is shared with discover_web through web_requests_YYYY-MM-DD.
@@ -122,16 +123,22 @@ def research_questions(store, settings, limit=None, fetcher=None, sleep_fn=time.
     limit = int(limit if limit is not None else cfg.get("questions_per_cycle", 5))
     if not 1 <= limit <= 50:
         raise ValueError("Question budget must be between 1 and 50")
+    if concept is not None:
+        concept = str(concept).strip().casefold()
+        if not re.fullmatch(r"[a-z]{3,28}(?: [a-z]{3,28})?", concept):
+            raise ValueError("Concept must be one or two simple English words (3..28 characters each)")
     max_pages = max(2, min(int(cfg.get("max_pages_per_question", 4)), 8))
     cooldown = max(0, int(cfg.get("retry_cooldown_seconds", 3600)))
-    selected = store.next_open_questions(limit, cooldown_seconds=cooldown, supported_only=True)
+    selected = store.next_open_questions(
+        limit, cooldown_seconds=cooldown, supported_only=True, concept=concept)
     profile = store.get("web_source_profile", {})
     cross_host = bool(profile.get("cross_host", False))
     report = {"attempted_questions": 0, "verified_answers": 0,
               "training_examples_created": 0, "unresolved_questions": 0,
               "unsupported_questions": store.unsupported_question_count(),
               "source_requests": 0, "source_errors": [], "answers": [],
-              "question_outcomes": [], "deferred_unsupported_questions": store.unsupported_question_count()}
+              "question_outcomes": [], "deferred_unsupported_questions": store.unsupported_question_count(),
+              "targeted_concept": concept}
     cache = {}
     used_key = "web_requests_" + time.strftime("%Y-%m-%d", time.gmtime())
     daily = int(settings.get("daily_request_budget", 60))
@@ -148,14 +155,22 @@ def research_questions(store, settings, limit=None, fetcher=None, sleep_fn=time.
         })
         return report
     if not selected:
-        supported_count = store.db.execute(
-            "SELECT COUNT(*) FROM research_questions "
-            "WHERE status='open' AND question LIKE 'What is %?'"
-        ).fetchone()[0]
+        if concept is None:
+            supported_count = store.db.execute(
+                "SELECT COUNT(*) FROM research_questions "
+                "WHERE status='open' AND question LIKE 'What is %?'"
+            ).fetchone()[0]
+        else:
+            supported_count = store.db.execute(
+                "SELECT COUNT(*) FROM research_questions "
+                "WHERE status='open' AND question LIKE 'What is %?' "
+                "AND LOWER(concept)=?", (concept,)
+            ).fetchone()[0]
         report.update({
             "status": "blocked",
             "stop_reason": ("retry_cooldown_active" if supported_count
-                            else "no_supported_open_questions"),
+                            else "no_matching_supported_open_question"
+                            if concept is not None else "no_supported_open_questions"),
             "open_questions": store.open_questions_count(),
             "deferred_due_to_budget": 0,
         })
