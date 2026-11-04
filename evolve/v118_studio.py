@@ -25,6 +25,8 @@ from .v118_core import (ask, add_qa_example, train_qa, qa_readiness,
 from .v119_curiosity import (smart_lookup, research as research_topic,
                              sentence_lessons, inventory as curiosity_inventory,
                              budget_status)
+from .v120_grounded import (grounded_answer, train_ranker,
+                            readiness as ranker_readiness)
 
 HOST = "127.0.0.1"
 MAX_BODY = 16384
@@ -84,6 +86,7 @@ class LearningController:
             auto_lessons = store.get("v119_auto_lessons", []) or []
             v117 = store.get("v117_latest")
             qa_model = store.get("v118_qa_latest")
+            grounded_ranker = store.get("v120_ranker_latest")
             qa_plan = qa_readiness(store) if (qa_examples or auto_lessons) else {
                 "status": "needs_source_grounded_examples"}
             job = store.get("v118_last_job")
@@ -107,9 +110,9 @@ class LearningController:
                             elapsed * (target - done) / done, 1)
             return {
                 "status": "online", "time_utc": _utc(),
-                "studio_backend_version": "1.19.2",
-                "studio_api_version": 2,
-                "supported_chat_modes": ["auto", "sources", "char", "byte_bpe", "qa"],
+                "studio_backend_version": "1.20.0",
+                "studio_api_version": 3,
+                "supported_chat_modes": ["auto", "grounded", "sources", "char", "byte_bpe", "qa"],
                 "research_budget": budget,
                 "server_uptime_seconds": int(time.monotonic() - self.started_at),
                 "archived_pages": int(rows["pages"]),
@@ -122,6 +125,14 @@ class LearningController:
                 "research_attempts": curiosity["research_attempts"],
                 "recent_learning_events": curiosity["recent_learning_events"],
                 "qa_training_readiness": qa_plan,
+                "v120_grounded_ranker": {
+                    "sha256": grounded_ranker["sha256"],
+                    "steps": grounded_ranker["actual_training_steps"],
+                    "validation_pair_accuracy":
+                        grounded_ranker["validation_after"]["pair_accuracy"],
+                    "validation_loss": grounded_ranker["validation_after"]["loss"],
+                    "note": "Neural evidence ranking, not generated explanations",
+                } if grounded_ranker else None,
                 "v117_models": {
                     k: {"sha256": v["sha256"],
                         "steps": v["actual_training_steps"],
@@ -144,6 +155,7 @@ class LearningController:
                     "minimum_training_bytes": 60000,
                     "network_crawl_in_auto_mode": False,
                     "source_study_when_new_approved_articles": True,
+                    "grounded_ranker_on_new_approved_sources": True,
                     "network_research_triggered_by_auto_chat": True,
                     "rights_auto_approval": False,
                     "new_dataset_required": True,
@@ -173,12 +185,17 @@ class LearningController:
 
     def talk(self, question, mode):
         with self.lock:
-            if self.active and self.active.is_alive() and mode not in ("sources", "auto"):
+            if self.active and self.active.is_alive() and mode not in (
+                    "sources", "auto", "grounded"):
                 raise ValueError("Neural chat is disabled while training; use source lookup")
         store = self._store()
         try:
-            if mode == "auto":
-                result = smart_lookup(store, question, self.settings)
+            if mode in ("auto", "grounded"):
+                result = grounded_answer(store, question)
+                if mode == "auto" and result.get("status") == "no_definition":
+                    # The earlier Curiosity source lookup still searches broader
+                    # topics and may launch bounded web research when missing.
+                    result = smart_lookup(store, question, self.settings)
             else:
                 result = ask(store, question, mode)
         finally:
@@ -219,13 +236,14 @@ class LearningController:
                 "warning": "Only detects new eligible datasets and trains bounded experiments. Does not approve rights or gather new sites by itself."}
 
     def submit(self, kind, steps=None, automatic=False, question=None):
-        if kind not in ("language", "qa", "crawl", "research", "self-study"):
-            raise ValueError("Allowed jobs: language, qa, crawl, research, self-study")
+        if kind not in ("language", "qa", "crawl", "research", "self-study", "grounded-ranker"):
+            raise ValueError("Allowed jobs: language, qa, crawl, research, self-study, grounded-ranker")
         if kind == "research" and (not isinstance(question, str) or
                                     not 1 <= len(question.strip()) <= 180):
             raise ValueError("Research requires a short question")
         if steps is None:
-            steps = (120 if kind == "language" else 60 if kind in ("qa", "self-study")
+            steps = (120 if kind in ("language", "grounded-ranker")
+                     else 60 if kind in ("qa", "self-study")
                      else 2 if kind == "research" else 5)
         steps = _safe_int(steps, 1, 500 if kind != "crawl" else 10)
         with self.lock:
@@ -280,6 +298,10 @@ class LearningController:
                 progress("searching_public_sources", 0, 2, None)
                 result = research_topic(store, self.settings, question,
                                         progress=progress)
+            elif job["kind"] == "grounded-ranker":
+                progress("definition_training_readiness", 0, steps, None)
+                result = train_ranker(store, self.settings, steps=steps,
+                                      progress=progress)
             elif job["kind"] == "self-study":
                 progress("extracting_source_exercises", 0, steps, None)
                 mined = sentence_lessons(store)
@@ -378,6 +400,19 @@ class LearningController:
                     store = None
                     self.submit("self-study", steps=60, automatic=True)
                     continue
+                # Attempt one validated evidence-ranking experiment on each
+                # revised approved corpus. Insufficient facts lead to an
+                # explicit skipped job, never repeated on the same revision.
+                if (len(revision_rows) >= 3 and
+                    revision != store.get("v120_auto_ranker_revision")):
+                    store.put("v120_auto_ranker_revision", revision)
+                    store.log("v120_auto_check", "ranking_study_requested",
+                              {"approved_sources": len(revision_rows),
+                               "revision_sha256": revision})
+                    store.close()
+                    store = None
+                    self.submit("grounded-ranker", steps=120, automatic=True)
+                    continue
                 if (info["ready_for_independent_training"] and
                     new_sha and (not last or last["dataset_sha256"] != new_sha)
                     and eligible >= 12 and train_bytes >= 60000):
@@ -408,7 +443,7 @@ class LearningController:
 
 def _handler(controller, token, origin):
     class StudioHandler(BaseHTTPRequestHandler):
-        server_version = "BERHOT-Studio/1.19.2"
+        server_version = "BERHOT-Studio/1.20"
         def _headers(self, code, content_type):
             self.send_response(code)
             self.send_header("Content-Type", content_type)
@@ -515,7 +550,7 @@ def serve(settings, port=8787, interval=3600):
             ) from exc
         raise
     print(f"BERHOT Learning Studio: {origin}", flush=True)
-    print("Backend 1.19.2 / API 2; chat modes: auto, sources, char, byte_bpe, qa.", flush=True)
+    print("Backend 1.20.0 / API 3; chat modes: auto, grounded, sources, char, byte_bpe, qa.", flush=True)
     print("Local-only. Press Ctrl+C to stop; automatic training runs only while Studio remains open.", flush=True)
     try:
         server.serve_forever(poll_interval=0.25)

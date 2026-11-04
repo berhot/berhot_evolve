@@ -53,7 +53,7 @@ footer{color:var(--muted);font-size:11px;text-align:center;margin-top:24px}
 <div class="two" style="margin-top:17px"><div><div class="metric-label">Time learning (current / last)</div><div class="train-metric" id="elapsed">0s</div></div><div><div class="metric-label">Estimated remaining time</div><div class="train-metric" id="eta">—</div></div></div>
 <div class="mline"><span class="muted">Last measured training loss</span><strong id="loss">—</strong></div>
 <div class="mline"><span class="muted">Last job result</span><strong id="jobresult">—</strong></div>
-<div class="sep"></div><div class="controls"><button class="btn primary" id="train-lm">Train text brain · 120 steps</button><button class="btn" id="train-qa">Train QA brain · 60 steps</button><button class="btn" id="self-study">Teach from approved text · 60 steps</button><button class="btn" id="crawl">Crawl queued pages</button></div>
+<div class="sep"></div><div class="controls"><button class="btn primary" id="train-lm">Train text brain · 120 steps</button><button class="btn" id="train-qa">Train QA brain · 60 steps</button><button class="btn" id="self-study">Teach from approved text · 60 steps</button><button class="btn" id="grounded-ranker">Learn to select evidence · 120 steps</button><button class="btn" id="crawl">Crawl queued pages</button></div>
 <div class="notice" id="train-notice"></div><p class="small">Every run is bounded. The current 120-step experiments start from scratch; they are not yet continuous fine-tuning of the prior model.</p>
 </section>
 <section class="panel"><div class="panelhead"><div><div class="eyebrow">Checkpoints</div><h2>Your neural models</h2></div><span class="tag good">Real PyTorch</span></div><div class="two"><div class="model"><strong>Character LM</strong><div class="metric-number" style="font-size:25px" id="charloss">—</div><small>Validation bits / UTF-8 byte</small><small class="mono" id="charhash" style="margin-top:7px">No checkpoint</small></div><div class="model"><strong>Byte-BPE LM</strong><div class="metric-number" style="font-size:25px" id="bpeloss">—</div><small>Validation bits / UTF-8 byte</small><small class="mono" id="bpehash" style="margin-top:7px">No checkpoint</small></div></div><div class="mline"><span class="muted">Supervised QA model</span><strong id="qastatus">Not trained</strong></div><p style="margin-top:12px;font-size:11px">Lower validation loss only means better prediction of this limited dataset. It is not proof of understanding.</p></section>
@@ -68,29 +68,29 @@ footer{color:var(--muted);font-size:11px;text-align:center;margin-top:24px}
 </div>
 <div class="stack">
 <section class="panel"><div class="panelhead"><div><div class="eyebrow">Talk to EVOLVE</div><h2>Ask the actual system</h2></div><span class="tag good">Local / no API</span></div>
-<label for="chatmode" style="margin-top:0">Select how it answers</label><select id="chatmode"><option value="auto">Curiosity · Check memory, research missing questions, cite sources</option><option value="sources">Approved local sources only (no network)</option><option value="byte_bpe">Neural · Byte-BPE — raw generated text</option><option value="char">Neural · Characters — raw generated text</option><option value="qa">Neural · Supervised QA (if trained)</option></select>
-<div class="mline"><span class="muted">Shared research requests (UTC day)</span><strong id="research-budget">Checking...</strong></div>
+<label for="chatmode" style="margin-top:0">Select how it answers</label><select id="chatmode"><option value="auto">Curiosity · Definitions first, then research missing topics</option><option value="grounded">Grounded Q&A · Approved definitions only (no web)</option><option value="sources">Approved local sources only (no network)</option><option value="byte_bpe">Neural · Byte-BPE — raw generated text</option><option value="char">Neural · Characters — raw generated text</option><option value="qa">Neural · Supervised QA (if trained)</option></select>
+<div class="mline"><span class="muted">Shared research requests (UTC day)</span><strong id="research-budget">Checking...</strong></div><div class="mline"><span class="muted">Neural evidence ranker</span><strong id="grounded-ranker-state">Not trained</strong></div>
 <div class="chatlog" id="chatlog"><div class="bubble"><div class="speaker">EVOLVE</div>Ask me about moon, volcanoes, or a new topic. Curiosity mode first checks my approved books, then researches public sources when missing. Every answer is a quoted passage, not yet a fluent neural explanation.</div></div>
 <label for="question">Message</label><div class="row"><input id="question" maxlength="280" placeholder="What causes a volcano?"><button id="send" class="btn primary">Send ↗</button></div><div id="chat-notice" class="notice"></div>
-<p class="small">Curiosity mode can read and cache an unfamiliar public article under your existing website access limits. Research memory is not neural learning. Self-study generates labeled reading examples only from previously rights-approved texts.</p></section>
+<p class="small">Grounded Q&A uses exact approved-source definitions. The small neural evidence ranker can learn which passage to select, but does not write its own explanation. Curiosity mode can still research a simple missing topic, subject to safe browsing limits.</p></section>
 <section class="panel"><div class="panelhead"><div><div class="eyebrow">Stage C / controlled loop</div><h2>Automatic reading practice</h2></div><span id="autotag" class="tag">OFF</span></div>
-<p class="small">When enabled, EVOLVE checks approved local articles and creates its own exact-source reading exercises, then trains a separate tiny answer model if validation data exists. It also checks for larger new datasets (≥12 approved articles / 60 KB training). Curiosity chat can research a missing topic when you send a message. No automatic rights approval.</p>
+<p class="small">When enabled, EVOLVE can create reading exercises and attempt a separate evidence-ranking model from a new rights-reviewed source revision, subject to strict host holdout. It also checks for larger new datasets (≥12 approved articles / 60 KB training). Curiosity can research a missing topic when you send a message. No automatic rights approval.</p>
 <div class="controls" style="margin:15px 0"><button id="auto-on" class="btn primary">Enable auto checks</button><button id="auto-off" class="btn">Stop auto checks</button></div>
 <div class="mline"><span class="muted">Next check</span><strong id="nextcheck">—</strong></div><div class="mline"><span class="muted">Last check</span><strong id="lastcheck">—</strong></div><div class="mline"><span class="muted">Required new approved data</span><strong>12 articles / 60 KB</strong></div>
 <div id="auto-notice" class="notice"></div><p class="small">Auto checks run only while this terminal's Studio process stays open. They are not independent research decisions.</p></section>
 <section class="panel"><div class="panelhead"><div><div class="eyebrow">Training history</div><h2>Recent activities</h2></div><span class="tag">Latest first</span></div><div id="activity" class="time-line"><div class="empty">No Studio jobs yet. Your earlier v1.17 checkpoints remain available above.</div></div></section>
 <section class="panel"><div class="eyebrow">Understand your AI</div><h2>What BERHOT can and cannot do</h2><div style="margin-top:12px"><div class="mline"><span>Collect &amp; store permitted science text</span><span style="color:var(--good)">✓ Working</span></div><div class="mline"><span>Train neural models after approval</span><span style="color:var(--good)">✓ Working</span></div><div class="mline"><span>Show real training progress</span><span style="color:var(--good)">✓ Working</span></div><div class="mline"><span>Search citations in local articles</span><span style="color:var(--good)">✓ Working</span></div><div class="mline"><span>Chat fluently like ChatGPT</span><span style="color:var(--warn)">Not yet</span></div><div class="mline"><span>Think independently or choose goals</span><span style="color:var(--warn)">Not yet</span></div></div></section>
 </div>
-</div><footer>BERHOT EVOLVE v1.19 · Experimental neural lab · Local machine only · Saved artifacts remain on your computer</footer>
+</div><footer>BERHOT EVOLVE v1.20 · Experimental neural lab · Local machine only · Saved artifacts remain on your computer</footer>
 </div>
 <script>
 "use strict";
 const token=document.querySelector('meta[name="evolve-token"]').content;
 const $=id=>document.getElementById(id);
 let latest=null;let pendingResearch=null;
-const STUDIO_API_VERSION=2;
+const STUDIO_API_VERSION=3;
 const restartMessage="Old Studio backend detected. Close its Terminal with Ctrl+C, then restart: python3 -m evolve studio --port 8787 --interval 60. Refresh this page.";
-function compatible(s){return s?.studio_api_version===STUDIO_API_VERSION&&Array.isArray(s.supported_chat_modes)&&s.supported_chat_modes.includes("auto");}
+function compatible(s){return s?.studio_api_version===STUDIO_API_VERSION&&Array.isArray(s.supported_chat_modes)&&s.supported_chat_modes.includes("auto")&&s.supported_chat_modes.includes("grounded");}
 const timeFmt=v=>{if(v==null||!Number.isFinite(Number(v)))return "—";v=Math.max(0,Math.round(Number(v)));return v>=3600?Math.floor(v/3600)+"h "+Math.floor(v%3600/60)+"m":v>=60?Math.floor(v/60)+"m "+(v%60)+"s":v+"s"};
 const dateFmt=s=>s?new Date(s).toLocaleString():"—";
 async function api(path,body){
@@ -134,13 +134,15 @@ async function refresh(){
     notify("chat-notice",b.remaining===0?"Research budget exhausted; resets "+dateFmt(b.reset_at_utc)+" (midnight UTC).": "");
  }
  text("clock",dateFmt(s.time_utc));text("pages",s.archived_pages);text("eligible",s.rights_eligible_articles);text("hosts",s.rights_eligible_hosts);
- text("families",Object.keys(s.v117_models||{}).length+(s.v118_qa_model?1:0));
+ text("families",Object.keys(s.v117_models||{}).length+(s.v118_qa_model?1:0)+(s.v120_grounded_ranker?1:0));
  text("lessons",(s.human_reviewed_qa_examples||0)+(s.source_derived_lessons||0));text("manual-lessons",s.human_reviewed_qa_examples||0);text("auto-lessons",s.source_derived_lessons||0);
  const models=s.v117_models||{};text("charloss",models.char?.val_bits_per_byte??"—");text("bpeloss",models.byte_bpe?.val_bits_per_byte??"—");
  text("charhash",models.char?models.char.sha256.slice(0,16)+"…":"No checkpoint");
  text("bpehash",models.byte_bpe?models.byte_bpe.sha256.slice(0,16)+"…":"No checkpoint");
  text("qastatus",s.v118_qa_model?"SHA "+s.v118_qa_model.sha256.slice(0,12)+"…":"Not yet trained");
  const ready=s.qa_training_readiness||{};text("qa-readiness",ready.counts?["train","val","test"].map(k=>ready.counts[k]).join(" / "):"Not ready");
+ const gr=s.v120_grounded_ranker;
+ text("grounded-ranker-state",gr?"SHA "+gr.sha256.slice(0,12)+" · val pairs "+Math.round(gr.validation_pair_accuracy*100)+"%":"Not trained; source-only matching");
  const j=s.job||{};const running=j.status==="running";
  text("jobstatus",j.status?j.status.toUpperCase():"IDLE");$("jobstatus").className="tag "+(running?"warn":j.status==="completed"?"good":"");
  text("phase",j.phase||"Waiting for an experiment");
@@ -148,7 +150,7 @@ async function refresh(){
  $("progress").style.width=pct+"%";text("percent",pct+"%");text("steps",done+" / "+total+" steps");
  text("elapsed",timeFmt(running?j.elapsed_seconds:j.duration_seconds));text("eta",running?timeFmt(j.estimated_remaining_seconds):"—");
  text("loss",j.training_loss??"—");text("jobresult",j.result_summary?.reason||j.result_summary?.status||j.error||j.status||"—");
- for(const name of ["train-lm","train-qa","self-study","crawl"])$(name).disabled=running;
+ for(const name of ["train-lm","train-qa","self-study","grounded-ranker","crawl"])$(name).disabled=running;
  text("autotag",s.auto.enabled?"ON":"OFF");$("autotag").className="tag "+(s.auto.enabled?"good":"");
  text("nextcheck",dateFmt(s.auto.next_check_utc));text("lastcheck",dateFmt(s.auto.last_check_utc));
  const a=$("activity");a.replaceChildren();const history=s.job_history||[];
@@ -161,6 +163,7 @@ async function refresh(){
 async function runJob(kind,steps){try{const r=await api("/api/job",{kind,steps});notify("train-notice",r.status==="busy"?"Already running another job.":"Started "+kind+" job "+r.job_id);refresh()}catch(err){notify("train-notice",err.message)}}
 $("train-lm").onclick=()=>runJob("language",120);
 $("train-qa").onclick=()=>runJob("qa",60);
+$("grounded-ranker").onclick=()=>runJob("grounded-ranker",120);
 $("self-study").onclick=async()=>{try{const r=await api("/api/study",{steps:60});notify("train-notice",r.status==="started"?"Self-study started: harvesting approved source exercises and training if eligible.":"Another job is active.");refresh()}catch(e){notify("train-notice",e.message)}};
 $("crawl").onclick=()=>runJob("crawl",5);
 $("refresh-plan").onclick=refreshPlan;
@@ -185,7 +188,7 @@ async function send(){
  const q=$("question").value.trim();if(!q)return;const mode=$("chatmode").value;$("question").value="";
  bubble("YOU",q,true);const msg=bubble("EVOLVE / "+mode,"Checking local knowledge...");
  try{
-   if(mode==="auto"&&!compatible(latest)){
+   if((mode==="auto"||mode==="grounded")&&!compatible(latest)){
      const status=await api("/api/status");
      if(!compatible(status))throw Error(restartMessage);
      latest=status;

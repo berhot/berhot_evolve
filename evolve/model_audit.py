@@ -148,6 +148,19 @@ def audit_model_and_ownership(store, settings=None):
                 "validation_char_loss_after": store.get("char_lab_latest_candidate")["validation_char_loss_after"],
                 "diagnostic_source_leakage": store.get("char_lab_latest_candidate")["diagnostic_source_leakage"],
             } if store.get("char_lab_latest_candidate") else None),
+            "v120_grounded_question_answering": {
+                "ranker_checkpoint": _checkpoint(
+                    store.get("v120_ranker_latest"), store.root),
+                "candidate_checkpoint": _checkpoint(
+                    store.get("v120_ranker_candidate"), store.root),
+                "training_runs": len(store.get("v120_ranker_history", []) or []),
+                "accepted_ranker_validation": (
+                    store.get("v120_ranker_latest") or {}).get(
+                        "validation_after"),
+                "answers_exact_approved_source_quotes": True,
+                "new_factual_understanding_proven": False,
+                "source_derived_training_is_human_fact_checked": False,
+            },
             "v119_curiosity_learning": {
                 "bounded_research_attempts": research_log_count,
                 "source_derived_reading_exercises": len(v119_auto),
