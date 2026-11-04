@@ -4,7 +4,7 @@ import unittest
 
 from evolve.basis_lab import (
     BASIS, GROUPS, OPS, _build_model, _effective_v15_coefficients,
-    _fit_from_train_pairs, _ood_pairs, _score,
+    _fit_from_train_pairs, _ood_pairs, _score, _reference_value,
     audit_interaction_coefficients, run_basis_lab, run_basis_study,
     predict_basis_lab,
 )
@@ -32,6 +32,17 @@ class BasisContracts(unittest.TestCase):
                 self.assertTrue(all(max(a, b) >= 10 for a, b in sample))
                 self.assertFalse(set(sample) & training)
         self.assertEqual(len(BASIS), 4)
+
+    def test_evaluation_oracle_handles_large_ood_without_widening_practice_api(self):
+        from evolve.practice import checked_answer
+        self.assertEqual(_reference_value(999, 998, "+"), 1997)
+        self.assertEqual(_reference_value(999, 998, "-"), 1)
+        self.assertEqual(_reference_value(999, 998, "*"), 997002)
+        self.assertEqual(_reference_value(100, 199, "-"), -99)
+        with self.assertRaises(ValueError):
+            _reference_value(1000, 998, "*")
+        with self.assertRaises(ValueError):
+            checked_answer(999, 998, "*")  # production restriction intact
 
     def test_seed_and_input_checks(self):
         with tempfile.TemporaryDirectory() as folder:
