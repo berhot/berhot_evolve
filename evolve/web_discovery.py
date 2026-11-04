@@ -4,8 +4,8 @@ The explorer can *read* public pages without demanding a machine-readable
 training license. It stores metadata/concept observations; only explicitly
 reusable content enters neural training. No logins, evasion, scripts or files.
 """
-from collections import Counter
 from html.parser import HTMLParser
+from .concept_mining import rank_page_concepts
 from urllib.parse import urlsplit, urljoin, urlunsplit, unquote
 from urllib.robotparser import RobotFileParser
 import hashlib
@@ -79,11 +79,15 @@ class PageExtractor(HTMLParser):
         self.in_title=False
         self.meta_noai=False
         self.license_links=[]
+        self.headings=[]
+        self.heading_stack=[]
     def handle_starttag(self,tag,attrs):
         props=dict(attrs)
         if tag in SKIP_TAGS:
             self.skip_depth+=1
         if tag=='title':self.in_title=True
+        if tag in ('h1','h2','h3'):
+            self.heading_stack.append([])
         if tag=='a' and props.get('href'):self.links.append(props['href'])
         if tag in ('a','link') and 'license' in props.get('rel','').lower().split() and props.get('href'):
             self.license_links.append(props['href'])
@@ -95,8 +99,12 @@ class PageExtractor(HTMLParser):
     def handle_endtag(self,tag):
         if tag in SKIP_TAGS:self.skip_depth=max(0,self.skip_depth-1)
         if tag=='title':self.in_title=False
+        if tag in ('h1','h2','h3') and self.heading_stack:
+            heading = ' '.join(' '.join(self.heading_stack.pop()).split())
+            if heading:self.headings.append(heading)
     def handle_data(self,data):
         if self.in_title:self.title.append(data)
+        if self.heading_stack and not self.skip_depth:self.heading_stack[-1].append(data)
         if not self.skip_depth:self.blocks.append(data)
     def result(self):
         text=unicodedata.normalize('NFC',' '.join(' '.join(self.blocks).split()))
@@ -180,12 +188,8 @@ def fetch_page(url, settings, opener=None):
 
 
 def top_concepts(text,focus='',max_new=3):
-    words=re.findall(r"[A-Za-z]{4,22}",text.casefold())
-    counts=Counter(w for w in words if w not in STOPWORDS)
-    candidates=sorted(counts,key=lambda w:(-counts[w],w))
-    if focus and re.fullmatch('[a-z]{4,22}',focus.lower()) and focus.lower() in counts:
-        candidates=[focus.lower()]+[c for c in candidates if c!=focus.lower()]
-    return candidates[:max_new]
+    """Legacy API wrapper. Focus is ignored; concepts must occur in the page."""
+    return [term for term, _ in rank_page_concepts(text, limit=max_new)]
 
 
 def register_seed(store,seed_url,license_id=None,rights_evidence_url=None,focus='',seed_html=None):
@@ -206,7 +210,7 @@ def register_seed(store,seed_url,license_id=None,rights_evidence_url=None,focus=
     if not (urlsplit(seed_url).hostname==urlsplit(rights_evidence_url).hostname or license_id in ('CC0-1.0','PUBLIC-DOMAIN')):
         raise WebSourceError('Provide rights evidence on the seed domain, or a verifiable CC0 rights URL')
     profile=dict(seed_url=seed_url,host=urlsplit(seed_url).hostname,license=license_id,
-                 rights_evidence_url=rights_evidence_url,focus=focus.lower(),
+                 rights_evidence_url=rights_evidence_url,
                  rights_mode=proof_mode,active=True)
     store.put('web_source_profile',profile)
     store.add_web_url(seed_url,0)
@@ -218,7 +222,7 @@ def register_exploration(store, seed_url, focus='', cross_host=False):
     seed_url = canonical_url(seed_url)
     profile = {
         'seed_url': seed_url, 'host': urlsplit(seed_url).hostname,
-        'focus': focus.lower(), 'mode': 'research_only',
+        'mode': 'research_only',
         'cross_host': bool(cross_host), 'active': True,
     }
     store.put('web_source_profile', profile)
@@ -227,7 +231,7 @@ def register_exploration(store, seed_url, focus='', cross_host=False):
 
 
 def discover_web(store,settings,limit=None,fetcher=None,sleep_fn=time.sleep):
-    """Bounded same-host crawl. Fetcher injection is only for tests."""
+    """Bounded web crawl. Fetcher injection is only for tests."""
     profile=store.get('web_source_profile')
     if not profile: return {'status':'not_configured','message':'Run explore --seed-url ... or web-start ... first'}
     cap=int(limit if limit is not None else settings.get('discovery_per_cycle',12))
@@ -251,6 +255,8 @@ def discover_web(store,settings,limit=None,fetcher=None,sleep_fn=time.sleep):
         try:
             html=fetcher(url) if fetcher else fetch_page(url,settings)
             text,title,links,noai=extract(html)
+            page_parser=PageExtractor();page_parser.feed(html)
+            ranked_concepts=rank_page_concepts(text,title,page_parser.headings,max_new)
             # 'noai' restricts AI training, not safe metadata-only observation.
             research_only = profile.get('mode') == 'research_only'
             if not research_only and profile.get('rights_mode')=='page_declaration':
@@ -258,7 +264,7 @@ def discover_web(store,settings,limit=None,fetcher=None,sleep_fn=time.sleep):
                 if observed!=profile['license']:
                     raise WebSourceError('This page does not declare the same reusable license')
             if len(text)<80:raise WebSourceError('Too little educational text')
-            concepts = top_concepts(text, profile.get('focus', ''), max_new)
+            concepts = [term for term, _ in ranked_concepts]
             if research_only:
                 # Discover freely without retaining text as a neural-training corpus.
                 reusable_license, _ = detect_declared_rights(html, url)
@@ -286,8 +292,8 @@ def discover_web(store,settings,limit=None,fetcher=None,sleep_fn=time.sleep):
                     if not profile.get('cross_host', False) and urlsplit(target).hostname != profile['host']:continue
                     if store.add_web_url(target,depth+1,maximum=int(settings.get('frontier_max',5000))):
                         added+=1;report['links_added']+=1
-            for topic in concepts:
-                if store.add_concept_task(topic,url,max_concepts):
+            for topic, priority in ranked_concepts:
+                if store.add_concept_task(topic,url,max_concepts,priority=priority,source_title=title):
                     report['concepts_added']+=1
             store.mark_web_url(url,'done')
         except Exception as exc:
@@ -301,9 +307,10 @@ def discover_web(store,settings,limit=None,fetcher=None,sleep_fn=time.sleep):
         task=store.next_concept_task()
         if task is None:break
         topic=task['term']
-        evidence=store.db.execute('SELECT COUNT(*) FROM documents WHERE LOWER(text) LIKE ?',('%'+topic+'%',)).fetchone()[0]
+        evidence=store.concept_sources(topic)
         store.mark_concept_task(topic,'reviewed')
-        store.log('concept_review','completed',{'term':topic,'documents_containing_term':evidence,
+        store.log('concept_review','completed',{'term':topic,'observed_source_count':len(evidence),
+                      'observed_sources':evidence[:3],
                       'open_questions':[f'What does {topic} mean?',
                                         f'Which other concepts are related to {topic}?',
                                         f'Can the learner use {topic} correctly in new contexts?'],
