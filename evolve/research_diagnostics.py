@@ -51,6 +51,29 @@ def research_health(store, settings, now=None):
     left = max(0, daily_limit - used)
     next_midnight = datetime(
         utc.year, utc.month, utc.day, tzinfo=timezone.utc) + timedelta(days=1)
+    # Offline qualification hints: URLs are only candidates. Actual per-page
+    # definitions, robots accessibility and training rights remain UNKNOWN
+    # until fetched and independently checked by the normal research engine.
+    from .research import candidate_urls, _publisher_hint
+    cross_host = bool((store.get("web_source_profile", {}) or {}).get(
+        "cross_host", False))
+    source_audit = []
+    for row in supported[:20]:
+        urls = candidate_urls(
+            store, str(row["question"][len("What is "):-1]).casefold(),
+            row["source_url"], cross_host=cross_host)
+        publishers = {
+            _publisher_hint(urlsplit(url).hostname)
+            for url in urls if urlsplit(url).hostname
+        }
+        source_audit.append({
+            "question_id": int(row["id"]),
+            "concept": str(row["question"][len("What is "):-1]).casefold(),
+            "candidate_urls": len(urls),
+            "distinct_candidate_publishers": len(publishers),
+            "needs_more_independent_source_candidates": len(publishers) < 2,
+            "training_rights": "unverified_from_saved_metadata",
+        })
     reason = (
         "daily_budget_exhausted" if left == 0 else
         "retry_cooldown_active" if ready == 0 and on_cooldown > 0 else
@@ -75,6 +98,7 @@ def research_health(store, settings, now=None):
             "next_retry_at_utc": _utc(next_retry) if next_retry is not None else None,
         },
         "source_hosts_in_supported_queue": dict(hosts.most_common(8)),
+        "source_qualification_preview": source_audit,
         "training_admission": {
             "verified_answers": int(store.db.execute(
                 "SELECT COUNT(*) FROM verified_answers").fetchone()[0]),
