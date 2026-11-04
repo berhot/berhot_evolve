@@ -187,6 +187,20 @@ def main(argv=None):
     gradient_predict.add_argument("--operator", choices=["+", "-", "*"], required=True)
     gradient_predict.add_argument("--seed", type=int, default=31415)
     gradient_predict.add_argument("--optimizer", choices=["adam", "sgd"], default="adam")
+    sub.add_parser("concept-inventory", help="Count two-source reusable verified concepts eligible for neural text learning")
+    concept = sub.add_parser("concept-lab", help="Train byte Transformer on verified definitions and test unseen paraphrases")
+    concept.add_argument("--steps", type=int, default=300)
+    concept.add_argument("--seed", type=int, default=31415)
+    concept.add_argument("--max-concepts", type=int, default=8)
+    concept.add_argument("--max-new-bytes", type=int, default=128)
+    concept.add_argument("--force", action="store_true")
+    concept_evaluate = sub.add_parser("concept-evaluate", help="Re-evaluate saved neural concept model on withheld question templates")
+    concept_evaluate.add_argument("--candidate", action="store_true")
+    concept_evaluate.add_argument("--max-new-bytes", type=int, default=128)
+    concept_predict = sub.add_parser("concept-predict", help="Generate text from learned checkpoint without any definition lookup")
+    concept_predict.add_argument("--question", required=True)
+    concept_predict.add_argument("--candidate", action="store_true")
+    concept_predict.add_argument("--max-new-bytes", type=int, default=128)
     rule_predict_parser.add_argument("--candidate", action="store_true",
                                      help="Inspect latest candidate even if validation rejected it")
     assess_parser = sub.add_parser("assess", help="Measure raw numeric formatting and exact answers on unseen arithmetic")
@@ -374,6 +388,22 @@ def main(argv=None):
                 from .gradient_lab import predict_gradient_lab
                 result = predict_gradient_lab(store, args.a, args.b,
                     operator=args.operator, seed=args.seed, optimizer=args.optimizer)
+            elif args.command == "concept-inventory":
+                from .concept_lab import concept_inventory
+                result = concept_inventory(store, max_concepts=32)
+            elif args.command == "concept-lab":
+                from .concept_lab import train_concept_lab
+                result = train_concept_lab(store, settings, steps=args.steps,
+                    seed=args.seed, max_concepts=args.max_concepts,
+                    force=args.force, max_new_bytes=args.max_new_bytes)
+            elif args.command == "concept-evaluate":
+                from .concept_lab import evaluate_concept_lab
+                result = evaluate_concept_lab(store, candidate=args.candidate,
+                    max_new_bytes=args.max_new_bytes)
+            elif args.command == "concept-predict":
+                from .concept_lab import predict_concept_lab
+                result = predict_concept_lab(store, question=args.question,
+                    candidate=args.candidate, max_new_bytes=args.max_new_bytes)
             elif args.command == "assess":
                 from .evaluation import evaluate_arithmetic
                 result = evaluate_arithmetic(store, settings, questions=args.questions,
