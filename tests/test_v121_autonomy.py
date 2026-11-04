@@ -155,7 +155,8 @@ class AutonomyTests(unittest.TestCase):
                                 if item["host"] == "unreviewed.example.org")
                 self.assertEqual(proposal["status"],
                                  "research_only_requires_article_rights_review")
-                self.assertFalse(proposal["neural_training_admitted"])
+                self.assertFalse(proposal["neural_training_admitted_by_this_report"])
+                self.assertFalse(proposal["source_rights_eligible_for_qa_extraction"])
                 self.assertIn("glacier", proposal["extracted_candidate_topics"])
                 self.assertEqual(
                     store.db.execute(
