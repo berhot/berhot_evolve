@@ -4,8 +4,6 @@ A source's license metadata and a mechanically detected sentence do not
 prove factual truth or legal training permission. Never approve sources here.
 """
 from collections import Counter
-from pathlib import Path
-from urllib.parse import urlsplit
 import hashlib
 
 from .v119_curiosity import _sentences
@@ -85,7 +83,8 @@ def evidence_report(store, limit=80):
             "extracted_candidate_topics": examples[:12],
             "potential_qa_examples": len(examples),
             "candidate_not_human_fact_checked": True,
-            "neural_training_admitted": approved,
+            "source_rights_eligible_for_qa_extraction": approved,
+            "neural_training_admitted_by_this_report": False,
         })
     summary = []
     for host, row in sorted(by_host.items()):
