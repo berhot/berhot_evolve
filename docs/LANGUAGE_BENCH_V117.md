@@ -147,3 +147,92 @@ The new regression suite covers: deterministic Unicode/Arabic byte BPE
 round-trip; train-only tokenizer digests; invalid/forward merge rejection;
 one-source skip; distinct source hosts; real CPU gradients for both families;
 separate checkpoint lineage; and refusal to read tampered checkpoints.
+
+
+## v1.17.1: explicit per-page rights review (no bypass)
+
+The original collector deliberately recognizes *only* explicit machine-readable
+Creative Commons Zero or Public Domain Mark `rel=license` declarations.
+Government-published public-domain scientific articles frequently state their
+rights on a separate agency policy page and therefore may remain `UNKNOWN`.
+The safe remedy is **per-article human attestation with a source-specific
+policy or rights evidence URL**, NOT labeling unknown sources as freely
+trainable by default.
+
+```bash
+python3 -m evolve v117-sources
+```
+
+Three examples to **inspect first** (not a verified training dataset):
+- NASA's detailed explanation of stars:
+  https://science.nasa.gov/universe/stars/
+  NASA usage policy:
+  https://www.nasa.gov/nasa-brand-center/images-and-media/
+- USGS about volcanoes:
+  https://www.usgs.gov/programs/VHP/about-volcanoes
+  USGS authorship and public domain:
+  https://www.usgs.gov/faqs/are-usgs-reportspublications-copyrighted
+- NOAA National Ocean Service educational coral-growth tutorial:
+  https://oceanservice.noaa.gov/education/tutorial_corals/coral03_growth.html
+  NOAA educational material policy:
+  https://www.noaa.gov/office-education/outreach-communication/faq
+
+Official NASA, USGS and NOAA sources discuss the general public-domain
+status of government-produced material, but explicitly note third-party
+exceptions. **The operator must verify the precise article's own authorship,
+third-party excerpts and terms, and any no-AI signals.** Do not automatically
+approve pages simply because they end in `.gov`.
+
+First queue/crawl:
+
+```bash
+python3 -m evolve corpus-seed --urls \
+  https://science.nasa.gov/universe/stars/ \
+  https://www.usgs.gov/programs/VHP/about-volcanoes \
+  https://oceanservice.noaa.gov/education/tutorial_corals/coral03_growth.html
+python3 -m evolve corpus-crawl --limit 12
+python3 -m evolve v117-sources
+```
+
+Check which URLs were actually archived and passed the existing HTML
+fetch, robots, metadata and quality controls. Do not assume success.
+If you personally verify all conditions for **an individual archived page**
+and its separately linked policy, use:
+
+```bash
+python3 -m evolve v117-review-rights \
+  --url "https://science.nasa.gov/universe/stars/" \
+  --license PUBLIC-DOMAIN \
+  --evidence-url "https://www.nasa.gov/nasa-brand-center/images-and-media/" \
+  --confirm-manual-review
+```
+
+Repeat this individually for any other pages after review.
+The command requires the page to already exist in the local archive, be
+`UNKNOWN`, have verified cleaned-text SHA, and have no `noai` signal.
+It requires explicit confirmation and **two HTTPS URLs** (article and separate
+evidence), and records the source and policy in an atomic SQLite rights
+review log. It does not verify legal ownership or automatically train.
+It rejects unknown pages, tampered content, no-AI signals and non-unknown
+license records. A machine-readable page-level CC0 or public-domain
+declaration continues to be accepted by the existing archive pipeline.
+
+Then run:
+
+```bash
+python3 -m evolve v117-plan
+python3 -m evolve v117-prepare
+python3 -m evolve v117-train --steps 120 --seed 31415 --device cpu --bpe-vocab 320
+python3 -m evolve v117-evaluate
+python3 -m evolve model-audit
+```
+
+`v117-prepare` will still refuse training if fewer than three distinct,
+eligible article hosts survive curation and rights review. One article per
+host is a minimum smoke experiment, not a diverse enough dataset to build
+coherent natural language.
+
+**Do not relabel Wikipedia CC BY-SA pages as PUBLIC-DOMAIN.** A CC BY-SA
+licensed article isn't a CC0 or public-domain article simply because
+the page is publicly accessible. This v1.17 experiment deliberately retains
+a stricter narrow rights gate.

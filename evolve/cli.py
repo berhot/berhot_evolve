@@ -51,6 +51,13 @@ def main(argv=None):
                                  help="Spend research budget only on a specific eligible concept")
     research_plan = sub.add_parser("research-plan", help="Offline preview of the exact concept's source candidates and publisher groups")
     research_plan.add_argument("--concept", required=True)
+    sub.add_parser("v117-sources", help="List archived page URLs, metadata and manual rights-review candidates")
+    rights_review = sub.add_parser("v117-review-rights", help="Attest rights evidence for ONE archived public article; never automatic")
+    rights_review.add_argument("--url", required=True)
+    rights_review.add_argument("--license", choices=["CC0-1.0", "PUBLIC-DOMAIN"], required=True)
+    rights_review.add_argument("--evidence-url", required=True)
+    rights_review.add_argument("--confirm-manual-review", action="store_true",
+        help="I personally reviewed this exact article, publisher ownership, no-AI signs and linked rights policy")
     sub.add_parser("v117-plan", help="Audit available rights-declared training sources and missing hosts")
     sub.add_parser("v117-prepare", help="Freeze and verify strict three-host train/validation/test partitions")
     v117_train = sub.add_parser("v117-train", help="Train separate from-scratch char and original byte-BPE models")
@@ -354,6 +361,14 @@ def main(argv=None):
             elif args.command == "research-plan":
                 from .research_diagnostics import research_plan
                 result = research_plan(store, settings, concept=args.concept)
+            elif args.command == "v117-sources":
+                from .v117_rights import sources
+                result = sources(store)
+            elif args.command == "v117-review-rights":
+                from .v117_rights import review_rights
+                result = review_rights(store, args.url, args.license,
+                                       args.evidence_url,
+                                       confirmed=args.confirm_manual_review)
             elif args.command == "v117-plan":
                 from .v117 import plan
                 result = plan(store)
