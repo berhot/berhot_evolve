@@ -78,6 +78,14 @@ class DefinitionUnitTests(unittest.TestCase):
         self.assertIsNone(topic_from_question("What happens when a star dies?"))
         self.assertEqual(extract_definition(SCIENCE[1][2][0]), "sun")
         self.assertEqual(extract_definition("The Sun is a star."), "sun")
+        # A verbatim citation is not necessarily a useful scientific
+        # definition; these frequent noise patterns must not self-teach.
+        self.assertIsNone(extract_definition(
+            "The result is a collection of scientific observations."))
+        self.assertIsNone(extract_definition(
+            "The word photosphere is a word used to describe a stellar layer."))
+        self.assertIsNone(topic_from_question("What is result?"))
+        self.assertIsNone(topic_from_question("Define word photosphere"))
         self.assertIsNone(extract_definition(
             "Our Sun is roughly midway through its main sequence stage."))
         self.assertIsNone(extract_definition(
