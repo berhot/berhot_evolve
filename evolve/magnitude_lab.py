@@ -190,6 +190,7 @@ def run_magnitude_lab(store, settings, steps=800, seed=31415, hidden=32):
         "test_accuracy": after["test"]["accuracy"],
     }
     store.put("magnitude_lab_latest_candidate", record)
+    store.put(f"magnitude_lab_seed_{seed}", record)
     if accepted:
         store.put("magnitude_lab_latest", record)
     from .rule_lab import _existing_additive_baseline
