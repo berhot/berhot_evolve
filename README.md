@@ -1,3 +1,41 @@
+# BERHOT EVOLVE v1.13 — Complete Corpus-to-Neural Learning Experiment
+
+**One-shot command using the current archived Energy article**:
+
+```bash
+git pull origin main
+python3 -m pip install -e '.[train]'
+python3 -m evolve web-inventory --include-unknown-rights
+python3 -m evolve web-lab --steps 80 --seed 31415 --device cpu \
+  --include-unknown-rights --diagnostic-within-document
+python3 -m evolve web-evaluate
+python3 -m evolve web-predict --prompt 'Energy is' --new-bytes 100
+python3 -m evolve model-audit
+```
+
+The single qualifying Energy article does NOT provide independent website
+holdouts. This explicitly labeled same-article **DIAGNOSTIC** experiment
+allows real weight updates now; it is not proof of generalization. Once
+at least three distinct hosts with substantive articles have been archived,
+run without `--diagnostic-within-document` for source-host heldout tests.
+
+One-shot web-lab handles article curation (navigation excluded),
+chunk dedup, rights metadata and explicit unknown-rights research opt-in,
+SHA256 frozen datasets, actual PyTorch gradient descent, validation-only
+checkpoint selection, heldout test byte loss, arithmetic language-loss
+transfer diagnostic, SHA256 checkpoint persistence, and weight-only
+inference through web-predict. Existing general and arithmetic checkpoints
+remain untouched. No network access is needed after collection.
+
+**Tests do not establish genuine web knowledge.** A reduced byte loss
+only measures improved next-byte predictions on those samples. The new
+tiny model is initialized independently of the arithmetic model, so
+the arithmetic proxy is not a true continual-learning forgetting test.
+Training uses PyTorch; BERHOT has not yet built a fully native tensor engine.
+
+See docs/WEB_LAB_V113.md for the complete experimental design and safeguards.
+
+## Previous version — v1.12.1
 # BERHOT EVOLVE v1.12.1 — Correct Audit & Isolated Corpus Crawl
 
 ## Fixes from actual Mac diagnostic output
