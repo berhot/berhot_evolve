@@ -511,6 +511,8 @@ class Store:
             "gradient_lab_latest_candidate": self.get("gradient_lab_latest_candidate"),
             "concept_lab_latest": self.get("concept_lab_latest"),
             "concept_lab_latest_candidate": self.get("concept_lab_latest_candidate"),
+            "web_lab_latest": self.get("web_lab_latest"),
+            "web_lab_latest_candidate": self.get("web_lab_latest_candidate"),
             "concepts_discovered": self.db.execute("SELECT COUNT(*) FROM concept_tasks").fetchone()[0],
             "latest_promoted_model": dict(self.latest_promoted()) if self.latest_promoted() else None,
         }
