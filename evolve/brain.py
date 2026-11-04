@@ -79,7 +79,7 @@ def sha256_file(path):
     return h.hexdigest()
 
 
-def sample_text(model, prompt, block_size, max_new_bytes=100, temperature=0.9, device="cpu", seed=42):
+def sample_text(model, prompt, block_size, max_new_bytes=100, temperature=0.9, device="cpu", seed=42, greedy=False):
     torch, _ = require_torch()
     torch.manual_seed(seed)
     data = list(prompt.encode("utf-8", errors="replace")) or [10]
@@ -88,6 +88,6 @@ def sample_text(model, prompt, block_size, max_new_bytes=100, temperature=0.9, d
         for _ in range(max_new_bytes):
             x = torch.tensor([data[-block_size:]], dtype=torch.long, device=device)
             logits = model(x)[0, -1, :] / max(temperature, 0.05)
-            token = int(torch.multinomial(torch.softmax(logits, dim=-1), 1).item())
+            token = int(logits.argmax().item() if greedy else torch.multinomial(torch.softmax(logits, dim=-1), 1).item())
             data.append(token)
     return bytes(data).decode("utf-8", errors="replace")

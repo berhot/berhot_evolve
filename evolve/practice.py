@@ -30,8 +30,10 @@ def checked_answer(a, b, operator):
     return answer
 
 
-def practice_arithmetic(store, limit=32, maximum=2000):
+def practice_arithmetic(store, limit=32, maximum=2000, skill="mixed"):
     """Generate bounded, unique, verified QA documents; never use web content."""
+    if skill not in ("mixed", "single-digit-add"):
+        raise ValueError("Skill must be mixed or single-digit-add")
     limit = int(limit)
     if not 1 <= limit <= 100:
         raise ValueError("Practice batch must contain 1..100 exercises")
@@ -40,19 +42,24 @@ def practice_arithmetic(store, limit=32, maximum=2000):
     ).fetchone()[0]
     if previous >= maximum:
         return {"status": "complete", "new_examples": 0, "total_examples": previous}
-    round_id = int(store.get("verified_arithmetic_round", 0))
+    round_key = "verified_arithmetic_round" if skill == "mixed" else "verified_arithmetic_round_single_digit_add"
+    round_id = int(store.get(round_key, 0))
     rng = random.Random(1031 + round_id)
     new = 0
     problems = []
     for _ in range(limit * 30):
         if new >= min(limit, maximum - previous):
             break
-        a, b = rng.randrange(1, 80), rng.randrange(1, 80)
-        op = rng.choice(["+", "-", "*"])
+        if skill == "single-digit-add":
+            a, b, op = rng.randrange(0, 10), rng.randrange(0, 10), "+"
+        else:
+            a, b = rng.randrange(1, 80), rng.randrange(1, 80)
+            op = rng.choice(["+", "-", "*"])
         answer = checked_answer(a, b, op)
         question = f"{a} {op} {b}"
         lesson = f"Question: {question} = ?\nAnswer: {answer}\n"
-        source_id = "verified:arithmetic:" + hashlib.sha256(question.encode()).hexdigest()
+        key_prefix = "verified:arithmetic:single-digit-add:" if skill == "single-digit-add" else "verified:arithmetic:"
+        source_id = key_prefix + hashlib.sha256(question.encode()).hexdigest()
         if store.save_doc(
             source_id=source_id, text=lesson, url="internal://python-arithmetic-verifier",
             license_id="SELF-GENERATED-VERIFIED", topic="verified:arithmetic",
@@ -62,15 +69,16 @@ def practice_arithmetic(store, limit=32, maximum=2000):
             if len(problems) < 5:
                 problems.append({"question": question, "answer": answer})
     if new:
-        store.put("verified_arithmetic_round", round_id + 1)
+        store.put(round_key, round_id + 1)
     report = {
         "status": "generated" if new else "complete",
         "method": METHOD,
+        "skill": skill,
         "round": round_id,
         "new_examples": new,
         "total_examples": previous + new,
         "examples": problems,
-        "note": "Independent Python arithmetic practice. Not internet knowledge or proof of neural comprehension.",
+        "note": "Independent Python arithmetic practice; separate from web discovery and not proof of neural comprehension.",
     }
     store.log("verified_arithmetic_practice", report["status"], report)
     return report

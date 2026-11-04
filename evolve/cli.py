@@ -46,9 +46,17 @@ def main(argv=None):
     learn_parser.add_argument("--practice-limit", type=int, default=32)
     practice_parser = sub.add_parser("practice", help="Generate independently verified arithmetic QA exercises")
     practice_parser.add_argument("--limit", type=int, default=32)
-    assess_parser = sub.add_parser("assess", help="Measure exact-match accuracy on unseen arithmetic problems")
+    practice_parser.add_argument("--skill", choices=["mixed", "single-digit-add"], default="mixed")
+    math_parser = sub.add_parser("math-finetune", help="Train a separate neural arithmetic answerer with answer-only loss")
+    math_parser.add_argument("--skill", choices=["mixed", "single-digit-add"], default="mixed")
+    math_parser.add_argument("--steps", type=int, default=400)
+    math_parser.add_argument("--force", action="store_true", help="Train longer without new arithmetic examples")
+    assess_parser = sub.add_parser("assess", help="Measure raw numeric formatting and exact answers on unseen arithmetic")
     assess_parser.add_argument("--questions", type=int, default=10)
     assess_parser.add_argument("--seed", type=int, default=90210)
+    assess_parser.add_argument("--skill", choices=["mixed", "single-digit-add"], default="mixed")
+    assess_parser.add_argument("--distribution", choices=["in-range", "extrapolation", "both"], default="extrapolation")
+    assess_parser.add_argument("--model-source", choices=["auto", "general", "math"], default="auto")
     train_parser = sub.add_parser("train", help="Train model candidate with PyTorch")
     train_parser.add_argument("--force", action="store_true", help="Ignore new-data threshold")
     train_parser.add_argument("--verified-only", action="store_true",
@@ -106,10 +114,16 @@ def main(argv=None):
                 result["training"] = train_candidate(store, settings, force=args.force, verified_only=True)
             elif args.command == "practice":
                 from .practice import practice_arithmetic
-                result = practice_arithmetic(store, limit=args.limit)
+                result = practice_arithmetic(store, limit=args.limit, skill=args.skill)
+            elif args.command == "math-finetune":
+                from .answer_training import train_math_answerer
+                result = train_math_answerer(store, settings, skill=args.skill,
+                                             steps=args.steps, force=args.force)
             elif args.command == "assess":
                 from .evaluation import evaluate_arithmetic
-                result = evaluate_arithmetic(store, settings, questions=args.questions, seed=args.seed)
+                result = evaluate_arithmetic(store, settings, questions=args.questions,
+                    seed=args.seed, skill=args.skill,
+                    distribution=args.distribution, model_source=args.model_source)
             elif args.command == 'explore':
                 from .web_discovery import register_exploration, discover_web
                 profile = register_exploration(store,args.seed_url,cross_host=args.cross_host)
