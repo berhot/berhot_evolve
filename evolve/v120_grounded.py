@@ -100,6 +100,63 @@ def extract_definition(sentence):
     return topic
 
 
+def title_question(topic_title):
+    """Read only explicit public article titles like 'What is an estuary?'.
+
+    A page title is a question, not automatically a correct answer.
+    """
+    if not isinstance(topic_title, str):
+        return None
+    match = re.match(
+        r"^\\s*(what\\s+(?:is|are)\\s+"
+        r"(?:(?:a|an|the)\\s+)?"
+        r"[A-Za-z][A-Za-z-]{2,32}"
+        r"(?:\\s+[A-Za-z][A-Za-z-]{2,32})?\\?)",
+        topic_title.strip(), flags=re.I)
+    if not match:
+        return None
+    return topic_from_question(match.group(1))
+
+
+def _term_forms(topic):
+    """Conservative singular/plural matching; never infer a new fact."""
+    if " " in topic:
+        return [topic]
+    words = {topic, topic + "s", topic + "es"}
+    if topic.endswith("y"):
+        words.add(topic[:-1] + "ies")
+    return sorted(words)
+
+
+def title_evidence(text, topic):
+    """Find one exact on-topic *definition-like* sentence near a Q title.
+
+    Does not paraphrase, cite unrelated sentences, or add content to the
+    source. A title alone is insufficient for a training example.
+    """
+    term = re.compile(r"\\b(?:" +
+                      "|".join(re.escape(x) for x in _term_forms(topic)) +
+                      r")\\b", re.I)
+    # Avoid selecting incidental narrative such as 'Our Sun is roughly midway'.
+    pattern = re.compile(
+        r"\\b(?:is|are)\\s+(?:an?|the|one\\s+of)\\b|"
+        r"\\b(?:is|are)\\s+(?:\\w+\\s+){0,3}"
+        r"(?:bodies|areas|regions|types|systems|places|"
+        r"formations|structures|objects|habitats|masses)\\s+of\\b|"
+        r"\\b(?:means|refers\\s+to|defined\\s+as|describes)\\b",
+        re.I)
+    for sentence in _sentences(text)[:24]:
+        candidate = " ".join(sentence.split()).strip()
+        lower = candidate.casefold()
+        if not 28 <= len(candidate) <= 320 or len(candidate.split()) < 6:
+            continue
+        if lower.startswith(_BAD_START) or any(x in lower for x in _BAD_BODY):
+            continue
+        if term.search(candidate) and pattern.search(candidate):
+            return candidate
+    return None
+
+
 def _inventory(store, limit_sources=200, per_source=18):
     """Only read the SHA-verified, already rights-approved local corpus.
 
@@ -133,6 +190,29 @@ def _inventory(store, limit_sources=200, per_source=18):
             count += 1
             if count >= per_source:
                 break
+        # A genuine publisher heading such as 'What is a current?' can
+        # supply the question; an exact, nearby source sentence supplies
+        # the answer. Neither is silently promoted to verified science.
+        heading_topic = title_question(source["title"])
+        if heading_topic and count < per_source:
+            sentence = title_evidence(text, heading_topic)
+            if sentence is not None:
+                digest = _sha(sentence.casefold().encode("utf-8"))
+                key = (heading_topic, digest)
+                if digest not in seen and not any(
+                        f["topic"] == heading_topic and f["url"] == source["url"]
+                        for f in facts):
+                    seen.add(digest)
+                    facts.append({
+                        "topic": heading_topic,
+                        "question": "What is " + heading_topic + "?",
+                        "answer": sentence, "url": source["url"],
+                        "title": source["title"], "host": source["host"],
+                        "source_sha256": source["sha256"],
+                        "sentence_sha256": digest,
+                        "provenance": "publisher_question_title_exact_source_sentence",
+                        "fact_checked": False, "human_reviewed": False,
+                    })
     return facts
 
 
