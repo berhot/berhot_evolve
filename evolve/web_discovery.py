@@ -315,11 +315,9 @@ def discover_web(store,settings,limit=None,fetcher=None,sleep_fn=time.sleep):
         evidence=store.concept_sources(topic)
         source_url=task['source_url']
         source_title=task['source_title'] or (evidence[0]['title'] if evidence else '')
-        questions=[
-            f'What is {topic}?',
-            f'What other ideas are closely related to {topic}?',
-            f'How can {topic} be explained and independently checked?',
-        ]
+        # Keep only questions the current verifier can actually attempt.
+        # More reasoning question types are enabled when verifiers exist.
+        questions=[f'What is {topic}?']
         created=0
         for question in questions:
             if store.add_research_question(topic,question,source_url,source_title):

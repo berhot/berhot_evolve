@@ -42,5 +42,9 @@
     "questions_per_cycle": 5,
     "max_pages_per_question": 4,
     "retry_cooldown_seconds": 3600
+  },
+  "practice": {
+    "auto_enabled": false,
+    "batch_per_cycle": 32
   }
 }

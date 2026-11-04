@@ -41,6 +41,14 @@ def main(argv=None):
     learn_parser = sub.add_parser("learn", help="Research and train only on verified eligible answers")
     learn_parser.add_argument("--limit", type=int, default=10)
     learn_parser.add_argument("--force", action="store_true", help="Ignore new verified example threshold")
+    learn_parser.add_argument("--practice-arithmetic", action="store_true",
+                              help="Add separately labeled Python-verified math exercises before training")
+    learn_parser.add_argument("--practice-limit", type=int, default=32)
+    practice_parser = sub.add_parser("practice", help="Generate independently verified arithmetic QA exercises")
+    practice_parser.add_argument("--limit", type=int, default=32)
+    assess_parser = sub.add_parser("assess", help="Measure exact-match accuracy on unseen arithmetic problems")
+    assess_parser.add_argument("--questions", type=int, default=10)
+    assess_parser.add_argument("--seed", type=int, default=90210)
     train_parser = sub.add_parser("train", help="Train model candidate with PyTorch")
     train_parser.add_argument("--force", action="store_true", help="Ignore new-data threshold")
     train_parser.add_argument("--verified-only", action="store_true",
@@ -50,6 +58,8 @@ def main(argv=None):
     run_parser.add_argument("--offline", action="store_true", help="Skip internet requests")
     run_parser.add_argument("--no-train", action="store_true")
     run_parser.add_argument("--no-lab", action="store_true")
+    run_parser.add_argument("--practice-arithmetic", action="store_true",
+                            help="Enable Python-verified math practice for this learning cycle")
     sub.add_parser("daemon", help="Run scheduled bounded learning cycles")
     infer_parser = sub.add_parser("infer", help="Generate sample text from promoted tiny model")
     infer_parser.add_argument("--prompt", default="Earth")
@@ -64,7 +74,8 @@ def main(argv=None):
         return
     if args.command == "once":
         from .runtime import once
-        result = once(settings, network=not args.offline, train=not args.no_train, lab=not args.no_lab)
+        result = once(settings, network=not args.offline, train=not args.no_train,
+                      lab=not args.no_lab, practice=args.practice_arithmetic)
     else:
         store = Store(settings["storage_root"])
         try:
@@ -88,8 +99,17 @@ def main(argv=None):
                 from .research import research_questions
                 from .training import train_candidate
                 research_report = research_questions(store, settings, limit=args.limit)
-                result = {"research": research_report,
-                          "training": train_candidate(store, settings, force=args.force, verified_only=True)}
+                result = {"research": research_report}
+                if args.practice_arithmetic:
+                    from .practice import practice_arithmetic
+                    result["practice"] = practice_arithmetic(store, limit=args.practice_limit)
+                result["training"] = train_candidate(store, settings, force=args.force, verified_only=True)
+            elif args.command == "practice":
+                from .practice import practice_arithmetic
+                result = practice_arithmetic(store, limit=args.limit)
+            elif args.command == "assess":
+                from .evaluation import evaluate_arithmetic
+                result = evaluate_arithmetic(store, settings, questions=args.questions, seed=args.seed)
             elif args.command == 'explore':
                 from .web_discovery import register_exploration, discover_web
                 profile = register_exploration(store,args.seed_url,cross_host=args.cross_host)

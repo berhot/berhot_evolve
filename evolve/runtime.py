@@ -11,7 +11,8 @@ from .store import Store
 from .training import train_candidate
 
 
-def once(settings, discovery_limit=None, network=True, train=True, lab=True, fetcher=None, sleep_fn=time.sleep):
+def once(settings, discovery_limit=None, network=True, train=True, lab=True, fetcher=None,
+         sleep_fn=time.sleep, practice=False):
     store = Store(settings["storage_root"])
     report = {"cycle_started_utc":datetime.now(timezone.utc).isoformat()}
     try:
@@ -37,10 +38,17 @@ def once(settings, discovery_limit=None, network=True, train=True, lab=True, fet
             report["curriculum"] = expand_math_curriculum(store, settings)
         except Exception as error:
             report["curriculum"] = {"status":"error", "message":str(error)}
+        if practice or settings.get("practice", {}).get("auto_enabled", False):
+            try:
+                from .practice import practice_arithmetic
+                report["practice"] = practice_arithmetic(
+                    store, limit=settings.get("practice", {}).get("batch_per_cycle", 32))
+            except Exception as error:
+                report["practice"] = {"status": "error", "message": str(error)}
         if train:
             try:
                 profile = store.get("web_source_profile", {})
-                verified_only = profile.get("mode") == "research_only"
+                verified_only = profile.get("mode") == "research_only" or practice or settings.get("practice", {}).get("auto_enabled", False)
                 report["training"] = train_candidate(store, settings,
                                                     verified_only=verified_only)
             except Exception as error:

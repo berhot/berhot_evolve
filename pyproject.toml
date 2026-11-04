@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "berhot-evolve-mvp"
-version = "0.6.0"
+version = "0.7.0"
 description = "Autonomous open-web research exploration with separated training admission"
 requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
-train = ["torch>=2.2"]
+train = ["torch>=2.2", "numpy>=1.26"]
 
 [project.scripts]
 evolve = "evolve.cli:main"
