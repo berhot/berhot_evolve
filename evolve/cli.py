@@ -39,6 +39,10 @@ def main(argv=None):
     sub.add_parser("research-health", help="Read-only UTC quota, supported question cooldown and eligible evidence diagnostics")
     research_parser = sub.add_parser("research", help="Seek independent evidence for open questions")
     research_parser.add_argument("--limit", type=int, default=5)
+    research_parser.add_argument("--concept", default=None,
+                                 help="Spend research budget only on a specific eligible concept")
+    research_plan = sub.add_parser("research-plan", help="Offline preview of the exact concept's source candidates and publisher groups")
+    research_plan.add_argument("--concept", required=True)
     learn_parser = sub.add_parser("learn", help="Research and train only on verified eligible answers")
     learn_parser.add_argument("--limit", type=int, default=10)
     learn_parser.add_argument("--force", action="store_true", help="Ignore new verified example threshold")
@@ -258,7 +262,10 @@ def main(argv=None):
                 result = research_health(store, settings)
             elif args.command == "research":
                 from .research import research_questions
-                result = research_questions(store, settings, limit=args.limit)
+                result = research_questions(store, settings, limit=args.limit, concept=args.concept)
+            elif args.command == "research-plan":
+                from .research_diagnostics import research_plan
+                result = research_plan(store, settings, concept=args.concept)
             elif args.command == "learn":
                 from .research import research_questions
                 from .training import train_candidate
