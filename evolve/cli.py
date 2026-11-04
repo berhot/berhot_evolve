@@ -58,6 +58,12 @@ def main(argv=None):
     rights_review.add_argument("--evidence-url", required=True)
     rights_review.add_argument("--confirm-manual-review", action="store_true",
         help="I personally reviewed this exact article, publisher ownership, no-AI signs and linked rights policy")
+    curiosity = sub.add_parser("v119-research", help="Research a missing topic using bounded robots-compliant public HTML sources")
+    curiosity.add_argument("--question", required=True)
+    sub.add_parser("v119-inventory", help="Inspect curated source-grounded research and automatic lessons")
+    sub.add_parser("v119-self-study", help="Mine reading exercises from rights-reviewed local sources (no web calls)")
+    study_train = sub.add_parser("v119-study-train", help="Create exact-source reading lessons and train a separate neural QA model when ready")
+    study_train.add_argument("--steps", type=int, default=60)
     studio = sub.add_parser("studio", help="Launch local live web dashboard with chat and controlled learning")
     studio.add_argument("--port", type=int, default=8787)
     studio.add_argument("--interval", type=int, default=3600,
@@ -390,6 +396,21 @@ def main(argv=None):
                 result = review_rights(store, args.url, args.license,
                                        args.evidence_url,
                                        confirmed=args.confirm_manual_review)
+            elif args.command == "v119-research":
+                from .v119_curiosity import research
+                result = research(store, settings, args.question)
+            elif args.command == "v119-inventory":
+                from .v119_curiosity import inventory
+                result = inventory(store)
+            elif args.command == "v119-self-study":
+                from .v119_curiosity import sentence_lessons
+                result = sentence_lessons(store)
+            elif args.command == "v119-study-train":
+                from .v119_curiosity import sentence_lessons
+                from .v118_core import train_qa
+                extracted = sentence_lessons(store)
+                trained = train_qa(store, settings, steps=args.steps)
+                result = {"source_exercises": extracted, "training": trained}
             elif args.command == "v118-plan":
                 from .v118_core import curriculum
                 result = curriculum(store)
