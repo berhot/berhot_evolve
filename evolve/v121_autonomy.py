@@ -20,7 +20,7 @@ from .v118_core import _approved_text
 from .v119_curiosity import research as research_topic, budget_status
 from .v120_grounded import (
     _inventory, grounded_answer, readiness, topic_from_question,
-    title_question, train_ranker, _LABEL_POLICY,
+    title_question, train_ranker, _LABEL_POLICY, _inventory_revision,
 )
 
 VERSION = "berhot-autonomous-curiosity-v121"
@@ -553,6 +553,13 @@ def learning_report(store):
         }
     evaluation = latest.get("local_quiz_audit") or {}
     training = latest.get("neural_training") or {}
+    current_ranker = store.get("v120_ranker_latest") or {}
+    current_ranker_usable = bool(
+        current_ranker.get("accepted_by_validation") and
+        current_ranker.get("label_policy") == _LABEL_POLICY and
+        current_ranker.get("inventory_sha256") ==
+            _inventory_revision(_inventory(store))
+    )
     # Use the *last completed cycle's* readiness snapshot. Recomputing
     # readiness would call freeze_dataset() and write files, violating this
     # command's read-only contract.
@@ -596,6 +603,11 @@ def learning_report(store):
                 bool(latest.get("new_neural_weights_trained")),
             "accepted_after_validation":
                 bool(latest.get("accepted_neural_weights")),
+            "saved_checkpoint_usable_with_current_label_policy":
+                current_ranker_usable,
+            "last_cycle_metrics_are_historical_not_revalidated":
+                bool(training.get("status") == "trained") and
+                not current_ranker_usable,
             "heldout_test": training.get("test_after"),
             "neural_vs_lexical_heldout_benchmark":
                 training.get("benchmark"),
@@ -608,6 +620,8 @@ def learning_report(store):
         "source_hosts_by_split_at_last_cycle": ready.get("source_hosts", {}),
         "understanding_proven": False,
         "new_web_research_automatically_training_eligible": False,
+        "old_navigation_contaminated_ranker_is_disabled":
+            bool(current_ranker) and not current_ranker_usable,
         "next_action": (
             "Acquire and individually rights-review usable science definitions "
             "from at least one independent test-source host; rerun readiness."
