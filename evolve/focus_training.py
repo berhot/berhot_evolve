@@ -41,8 +41,9 @@ def _approved_pages(store, profile):
         for r in review_history if r.get("reviewer_attested_per_page") is True
     }
     for row in rows:
-        if row["host"] not in profile["allowed_hosts"]:
-            continue
+        # Focus is defined by topic and Arabic text, not a fixed publisher
+        # allowlist. New independently sourced hosts require identical manual
+        # per-page rights attestation before training admission.
         source, text = _approved_text(store, row["url"])
         # Content-level public-domain/CC0 signals alone are not enough for
         # a high-risk autonomous overnight training workflow. Require a

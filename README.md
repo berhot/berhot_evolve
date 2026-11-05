@@ -1925,3 +1925,111 @@ This small learner is not a general Arabic language model, fact checker,
 or independent Saudi historian. The pipeline does not establish historical
 truth by detecting repeated phrases, does not silently self-correct facts,
 and does not support unsupervised scientific generalization claims.
+
+## EVOLVE v1.28 — Continuous source curiosity + Studio control
+
+The previous v1.27 example `--hours 8` is the older **finite mode**.
+To keep the local focus worker alive until the operator stops it, run
+`--until-stopped`, or click **Start continuous learning** in the
+BERHOT Studio at `http://127.0.0.1:8787/`.
+Closing the browser does not stop the separate worker; stopping the
+Studio process also does not stop a separately launched worker. Shutting
+down/restarting the Mac or an OS crash will pause/terminate a local
+worker; this is not a remote cloud service.
+
+### Getting started — on the Mac
+
+```bash
+cd ~/Desktop/berhot_evolve
+git switch main
+git fetch origin
+git merge --ff-only origin/main
+python3 -m pip install -e '.[train]'
+export SSL_CERT_FILE="$(python3 -c 'import certifi; print(certifi.where())')"
+python3 -m evolve studio --port 8787
+```
+
+Open `http://127.0.0.1:8787/` and choose **Start continuous learning**.
+The status area now shows **architecture parameters vs accepted trained
+checkpoints**, updated weight steps, unique sources, duplicate sources,
+research questions, publisher-host count, pending links, and review leads.
+**Stop learning** issues a run-specific local stop request that the worker
+checks between bounded network/training operations.
+
+An alternative terminal command (do not start TWO workers for the same
+profile):
+
+```bash
+mkdir -p storage/logs
+nohup caffeinate -i python3 -u -m evolve focus-overnight \
+  --network --until-stopped \
+  --profile saudi-history-ar \
+  --max-pages 24 --pages-per-cycle 3 \
+  --interval-minutes 15 --train-steps 40 \
+  > storage/logs/saudi-history-continuous.log 2>&1 &
+python3 -m evolve focus-stop --profile saudi-history-ar
+```
+
+For a stopped worker, restarting the command resumes its persisted
+cross-domain discovery frontier; no archived source or accepted checkpoint
+is deleted. Retained URLs, search queries and questions are **research
+evidence**, not neural facts.
+
+### No fixed website whitelist
+
+The active focus is **Arabic → Saudi history**; sites are discovered from
+topic-relevant links in actual Arabic pages, including external publishers.
+Every new publisher is still subject to HTTPS, public DNS, robots.txt,
+redirect refusal, rate/response-size limits and a per-host request budget.
+Page content is checked for Arabic language and historical relevance
+**before it is archived**. A link or search snippet does not count as a
+fact or a training license.
+
+For **search across a much broader independent web index**, the operator
+may explicitly enable Brave Web Search API using their own account/key,
+in the same terminal/session used to start Studio:
+
+```bash
+export BRAVE_SEARCH_API_KEY="YOUR_PRIVATE_BRAVE_SEARCH_KEY"
+python3 -m evolve studio --port 8787
+```
+
+Do not commit/share the key or put it in the webpage. Search provider
+queries may incur costs under the operator's account. The agent performs
+at most 6 search API queries per UTC day, does not repeat a question
+within that day, prefers unseen *source-derived* questions, and rotates
+older queries across later days. Search results supply only candidate
+URLs; source pages are fetched separately with normal access controls.
+Without a key, cross-site link discovery still runs but no external
+general search engine is available.
+
+The process can run indefinitely, **not** request/collect data
+indefinitely in one day: the default cap is 24 public page requests per
+UTC day, at most 4 per host, plus up to 6 search API queries, all sharing
+the configured `daily_request_budget`. When the quota or frontier is
+empty it stays idle until permissible new work exists. Daily quotas and
+source-use restrictions must be respected even for a continuously
+running learner.
+
+### What "correct itself" and "train itself" currently mean
+
+When different independent publisher articles report historical dates
+for the same extracted subject, EVOLVE stores *possible disagreement*
+and cited snippets for verification. It never decides that the majority
+is automatically correct or silently alters immutable historical data.
+Its Arabic questions are automatically derived from actual source
+sentences, but are **not fact-checked**. Training rights are never
+inferred from a search result or government domain.
+
+The small fixed-parameter Arabic byte-GRU may train only on text
+individually approved by a human as per-article CC0/public domain,
+with an exact matching SHA-256 and enough independent train,
+validation and held-out publisher/test material. This can produce
+real neural weight updates without a human pressing a Train button
+*after suitable source rights have been reviewed*. If no such
+training data exists, `training_steps_this_run` remains **zero**.
+More browsing does not make the neural model grow in parameters.
+
+This is a practical supervised/weakly self-directed research
+prototype, not an autonomous self-improving Arabic general-purpose
+foundation model or an independently trustworthy historian.

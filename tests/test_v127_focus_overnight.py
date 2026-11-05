@@ -40,7 +40,10 @@ def fake_page(text):
 class FocusDataTests(unittest.TestCase):
     def test_profile_and_real_arabic_content_derived_questions(self):
         p = get_profile("saudi-history-ar")
-        self.assertEqual(len(p["allowed_hosts"]), 3)
+        self.assertEqual(len(p["initial_seed_hosts"]), 3)
+        self.assertEqual(
+            p["discovery_scope"],
+            "topic_driven_cross_publisher_no_fixed_host_allowlist")
         self.assertEqual(len(p["seeds"]), 8)
         self.assertTrue(all(u.startswith("https://") for u in p["seeds"]))
         text = arabic_text()
@@ -58,8 +61,13 @@ class FocusDataTests(unittest.TestCase):
         self.assertEqual(review_leads([]), [])
         with self.assertRaises(ValueError):
             get_profile("unapproved-topic")
+        extended = plan(extra_urls=[
+            "https://history-independent.example.org/saudi-history"])
+        self.assertIn("https://history-independent.example.org/saudi-history",
+                      extended["seed_urls"])
+        self.assertTrue(extended["no_permanent_website_allowlist"])
         with self.assertRaises(ValueError):
-            plan(extra_urls=["https://example.com/anything"])
+            plan(extra_urls=["http://127.0.0.1/private"])
 
     def test_offline_fetcher_archive_dedup_report_and_no_unlicensed_training(self):
         with tempfile.TemporaryDirectory() as folder:

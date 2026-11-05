@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "berhot-evolve-mvp"
-version = "1.27.0"
+version = "1.28.0"
 description = "Autonomous open-web research exploration with separated training admission"
 requires-python = ">=3.10"
 dependencies = []

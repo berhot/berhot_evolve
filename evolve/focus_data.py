@@ -15,6 +15,7 @@ _PROFILES = {
             "السعودية", "الدرعية", "الدولة السعودية", "التأسيس",
             "الملك عبدالعزيز", "المملكة العربية", "آل سعود",
             "التوحيد", "يوم التأسيس", "الإمام محمد بن سعود",
+            "تاريخ", "التاريخ",
         ),
         "url_terms": (
             "السعود", "الدرعية", "التأسيس", "الملك", "التاريخ",
@@ -33,8 +34,9 @@ _PROFILES = {
             "https://www.mofa.gov.sa/ar/ksa/Pages/history.aspx",
             "https://www.mofa.gov.sa/ar/ksa/Pages/foundingday.aspx",
         ),
-        "allowed_hosts": (
+        "initial_seed_hosts": (
             "saudipedia.com", "www.spa.gov.sa", "www.mofa.gov.sa"),
+        "discovery_scope": "topic_driven_cross_publisher_no_fixed_host_allowlist",
         "policy_urls": (
             "https://saudipedia.com/footer/" + quote("شروط الاستخدام"),
         ),
@@ -48,6 +50,17 @@ _EVENT_RULES = (
     (re.compile(r"(?:تأسس[ت]?|أُسست|تأسيس)\s+الدولة\s+السعودية\s+الأولى"), "متى تأسست الدولة السعودية الأولى؟", "تأسيس الدولة السعودية الأولى"),
     (re.compile(r"(?:تأسس[ت]?|أُسست|تأسيس)\s+الدولة\s+السعودية\s+الثانية"), "متى تأسست الدولة السعودية الثانية؟", "تأسيس الدولة السعودية الثانية"),
     (re.compile(r"(?:توحيد|وحد|إعلان توحيد)\s+(?:المملكة|البلاد|المملكة العربية السعودية)"), "متى أُعلن توحيد المملكة العربية السعودية؟", "توحيد المملكة"),
+)
+
+
+# Generic Arabic historic actions become *questions* only when a dated
+# phrase is actually present in the archived sentence; no generated answer.
+_GENERAL_EVENT = re.compile(
+    r"(?P<verb>تأسست|تأسس|أُسست|افتتح|أعلن|أُعلن|"
+    r"تولى|ولد|توفي|بدأ|استعاد|نشأت|تأسيس)"
+    r"\s+(?P<subject>[\u0621-\u064a\u064b-\u065f\s]{9,74}?)"
+    r"\s+(?:في\s+)?(?:عام|سنة)\s+"
+    r"(?P<year>(?:1[4-9]\d{2}|20\d{2}))"
 )
 
 
@@ -68,11 +81,19 @@ def topic_relevance(text, title, profile):
     sample = text[:12000].casefold()
     keywords = [term for term in profile["keywords"] if term in sample]
     in_title = [term for term in profile["keywords"] if term in heading]
+    strong = {
+        "الدرعية", "الدولة السعودية", "التأسيس", "الملك عبدالعزيز",
+        "آل سعود", "التوحيد", "يوم التأسيس",
+        "الإمام محمد بن سعود", "تاريخ", "التاريخ",
+    }
+    historically_specific = any(word in strong for word in keywords)
+    title_historical = any(word in strong for word in in_title)
     return {
         "language_ratio_ar": arabic_ratio(text),
         "keyword_hits": keywords,
         "title_keyword_hits": in_title,
-        "topical": len(keywords) >= 2 or bool(in_title),
+        "topical": title_historical or (
+            len(keywords) >= 2 and historically_specific),
         "language_ok": arabic_ratio(text) >= 0.48,
     }
 
@@ -88,9 +109,11 @@ def arabic_curiosity(text, source_url, source_sha256, profile, cap=12):
         quote = " ".join(sentence.split()).strip()
         if not 30 <= len(quote) <= 500:
             continue
+        specific_found = False
         for pattern, question, subject in _EVENT_RULES:
             if not pattern.search(quote):
                 continue
+            specific_found = True
             years = _YEAR.findall(quote)
             if not years:
                 continue
@@ -112,6 +135,31 @@ def arabic_curiosity(text, source_url, source_sha256, profile, cap=12):
             })
             if len(output) >= cap:
                 return output
+        # Broadens curiosity beyond just the three preprogrammed Saudi
+        # founding questions. The subject is a literal phrase from text.
+        if not specific_found:
+            match = _GENERAL_EVENT.search(quote)
+            if match is not None:
+                raw_subject = " ".join(match.group("subject").split()).strip()
+                verb = match.group("verb")
+                subject = (verb + " " + raw_subject)[:80]
+                question = "متى " + subject + "؟"
+                if 12 <= len(question) <= 110 and (question, quote) not in seen:
+                    seen.add((question, quote))
+                    output.append({
+                        "question": question, "subject": subject,
+                        "year_mentions": [match.group("year")],
+                        "exact_excerpt": quote[:500],
+                        "excerpt_sha256": hashlib.sha256(
+                            quote.encode("utf-8")).hexdigest(),
+                        "source_url": source_url,
+                        "source_sha256": source_sha256,
+                        "status": "unverified_research_question",
+                        "candidate_is_a_true_answer": False,
+                        "needs_independent_fact_check": True,
+                    })
+                    if len(output) >= cap:
+                        return output
     return output
 
 
@@ -143,7 +191,14 @@ def review_leads(observations):
             "independent_hosts_observed": len(host_data),
             "year_mentions": all_years,
             "same_years_only": len(all_years) == 1,
+            "potentially_conflicting_year_mentions": len(all_years) > 1,
+            "publisher_year_mentions": {
+                host: sorted(info["mentions"])
+                for host, info in sorted(host_data.items())},
+            "source_urls": sorted(set().union(
+                *(value["urls"] for value in host_data.values()))),
             "hosts": sorted(host_data),
+            "automatic_correction_applied": False,
             "status": "needs_human_validation_not_truth_verification",
         })
     return leads
