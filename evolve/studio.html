@@ -133,6 +133,7 @@ footer{color:var(--muted);font-size:11px;text-align:center;margin-top:24px}
 <div class="mline"><span class="muted">Research hosts / waiting source URLs</span><strong id="focus-discovery">—</strong></div>
 <div class="mline"><span class="muted">Cross-publisher links / web searches</span><strong id="focus-search">—</strong></div>
 <div class="mline"><span class="muted">Search discovery health</span><strong id="focus-search-health">Not checked</strong></div>
+<div class="mline"><span class="muted">Publisher sitemap discovery</span><strong id="focus-sitemap-health">Not attempted</strong></div>
 <div class="mline"><span class="muted">Potential claim disagreements for review</span><strong id="focus-corrections">—</strong></div>
 <div class="mline"><span class="muted">Last worker heartbeat</span><strong id="focus-heartbeat">—</strong></div>
 <div class="controls" style="margin-top:14px">
@@ -406,6 +407,10 @@ async function refresh(){
    (sd.error_phase?" · "+sd.error_phase.replaceAll("_"," "):"")+
    (sd.error_type?" · "+sd.error_type:"")+
    (sd.retry_after_seconds!=null?" · retry after "+sd.retry_after_seconds+"s":""));
+ const ss=f.last_sitemap_discovery||{};
+ text("focus-sitemap-health",(ss.status||"not_attempted").replaceAll("_"," ")+
+   (ss.host?" · "+ss.host:"")+
+   " · "+(ss.new_urls_queued||0)+" candidate URLs queued");
  text("focus-corrections",(f.source_comparison_leads||0)+" unverified review leads");
  text("focus-heartbeat",dateFmt(f.heartbeat_at_utc));
  $("focus-start").disabled=!!f.process_running||!compatible(s);
@@ -577,11 +582,16 @@ function renderInspector(){
   const recovery=w.last_archive_recovery||{};
   inspectorKey(stage,"Recovered candidate links from saved articles",
    (recovery.new_candidate_urls||0)+" URLs · "+(recovery.source_snapshots_checked||0)+" saved pages scanned · no web search needed");
+  const sm=w.last_sitemap_discovery||{};
+  inspectorKey(stage,"Publisher XML sitemap discovery",
+   (sm.status||"not attempted").replaceAll("_"," ")+
+   " · "+(sm.host||"no publisher selected")+
+   " · "+(sm.new_urls_queued||0)+" candidate URLs queued");
   if(w.current_url)inspectorExternal(stage,w.current_url,"Current source: "+w.current_url);
   if(!w.process_running)inspectorInfo(stage,"Worker is not running. Saved data and checkpoints remain available.",true);
   else if(age!==null&&age>=30)inspectorInfo(stage,"The OS worker lock is active, but its saved heartbeat is delayed. Check the worker terminal.",true);
   else if(w.last_cycle_idle_reason==="no_pending_urls_and_search_produced_no_candidates")
-   inspectorInfo(stage,"Research frontier exhausted. No new candidate links were found by search or saved-article link recovery. The worker is alive but cannot fetch or learn until permitted sources become available.",true);
+   inspectorInfo(stage,"Research frontier exhausted. Search, saved article links and the latest allowed publisher sitemap did not provide new fetchable URLs. The worker remains alive but cannot learn from new pages without permitted sources.",true);
   else if(cy.last_reason==="queue_empty"||cy.last_reason==="source_retry_wait")
    inspectorInfo(stage,"Worker is idle because no source URL is currently fetchable. The 30-page target is a maximum, not guaranteed work. Search discovery, publisher permissions and pending retries affect progress.",true);
   else inspectorInfo(stage,"The worker has an active process and saved heartbeat. This proves the process is alive—not that the model is conscious or continuously improving.");
@@ -612,6 +622,11 @@ function renderInspector(){
   const recovery=w.last_archive_recovery||{};
   inspectorKey(stage,"Additional links recovered from cached HTML",recovery.new_candidate_urls||0);
   inspectorKey(stage,"Saved article snapshots scanned",recovery.source_snapshots_checked||0);
+  const sm=w.last_sitemap_discovery||{};
+  inspectorKey(stage,"Latest publisher sitemap probe",
+   (sm.status||"not attempted").replaceAll("_"," ")+
+   " · "+(sm.host||"none"));
+  inspectorKey(stage,"Sitemap article URLs queued",sm.new_urls_queued||0);
   inspectorInfo(stage,"Showing the latest "+(r.source_records||[]).length+
    " source records; the full worker event history is available in the main page.");
   const list=r.source_records||[];
