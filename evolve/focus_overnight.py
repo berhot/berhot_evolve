@@ -82,7 +82,8 @@ def _source_error_policy(exc):
 def _public_state(state):
     return {key: value for key, value in state.items()
             if key not in ("_queue", "_seen", "_seeded", "_last_errors",
-                           "_host_day_used", "_host_last_at")}
+                           "_host_day_used", "_host_last_at",
+                           "_host_cooldown_until")}
 
 
 def _publish(store, state, phase, *, url=None, event=None, detail=None):
@@ -190,6 +191,7 @@ def init_state(store, profile_name, extra_urls=None, max_pages=24):
         "browser_search_provider": "duckduckgo",
         "minimum_host_gap_seconds": 20,
         "_host_last_at": {},
+        "_host_cooldown_until": {},
         "worker_pid": None,
         "heartbeat_at_utc": now,
         "current_phase": "not_started",
@@ -255,6 +257,8 @@ def init_state(store, profile_name, extra_urls=None, max_pages=24):
             saved_frontier.get("pages_attempted_today", 0))
     state["_host_last_at"] = dict(
         saved_frontier.get("host_last_at", {}))
+    state["_host_cooldown_until"] = dict(
+        saved_frontier.get("host_cooldown_until", {}))
     for url in base["seed_urls"]:
         _enqueue(state, url)
     store.put(_KEY + profile_name, _public_state(state))
@@ -322,6 +326,12 @@ def _run_page(store, settings, state, profile, fetcher=None,
             host_wait = max(0.0, gap - elapsed) if 0 <= elapsed < gap else 0.0
             retry_wait = max(
                 0.0, float(candidate.get("retry_at", 0) or 0) - now)
+            # HTTP 429 applies to the entire publisher, not just one URL.
+            # Defer ALL URLs from that host until its cooldown expires.
+            cooldown = max(0.0, float(
+                state.get("_host_cooldown_until", {}).get(candidate_host, 0)
+                or 0) - now)
+            retry_wait = max(retry_wait, cooldown)
             remaining = max(host_wait, retry_wait)
             if remaining > 0:
                 state["_queue"].append(candidate)
@@ -503,6 +513,9 @@ def _run_page(store, settings, state, profile, fetcher=None,
     except Exception as exc:
         state["errors"] += 1
         reason, transient, delay = _source_error_policy(exc)
+        if reason == "http_429_rate_limited":
+            state.setdefault("_host_cooldown_until", {})[host] = (
+                time_fn() + delay)
         count = max(0, int(item.get("retry_count", 0) or 0))
         retry_queued = False
         retry_delay = 0
@@ -748,6 +761,7 @@ def cycle(store, settings, state, pages=3, train_steps=40,
         "host_counts": state["_host_day_used"],
         "pages_attempted_today": state["pages_attempted_today"],
         "host_last_at": state["_host_last_at"],
+        "host_cooldown_until": state.get("_host_cooldown_until", {}),
     })
     store.put(_KEY + state["profile"], _public_state(state))
     store.log("focus_cycle", "completed", {
