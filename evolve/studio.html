@@ -26,8 +26,13 @@ header{display:flex;justify-content:space-between;align-items:center;padding-bot
 .focus-elapsed{font-size:31px;font-weight:800;letter-spacing:1px;font-variant-numeric:tabular-nums;color:var(--cyan)}
 .focus-livebar .metric-label{margin-bottom:3px}
 .focus-livebar .small{max-width:420px}
-.focus-activity{display:grid;gap:7px;margin:12px 0;max-height:205px;overflow:auto}
-.focus-event{border-left:2px solid #456b78;padding:5px 10px;color:#c0d2dc;font-size:12px}
+.focus-activity{display:flex;flex-direction:column;gap:7px;margin:12px 0;max-height:420px;overflow:auto;overscroll-behavior:contain}
+.focus-event{border-left:2px solid #456b78;padding:8px 10px;color:#c0d2dc;font-size:12px;overflow-wrap:anywhere}
+.focus-event.new{border-color:#45bdb7}
+.focus-activity-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:9px;margin-top:12px}
+.focus-activity-toolbar .metric-label{margin:0}
+.focus-activity-toolbar .btn{padding:6px 11px;font-size:11px}
+
 .focus-source{font-size:12px;word-break:break-all;overflow-wrap:anywhere;max-width:60%}
 
 @media(max-width:850px){.focus-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -83,8 +88,9 @@ footer{color:var(--muted);font-size:11px;text-align:center;margin-top:24px}
 </div>
 <div class="mline"><span class="muted">Currently reading / processing</span><strong class="focus-source" id="focus-current-url">—</strong></div>
 <div class="mline"><span class="muted">Current training batch loss</span><strong id="focus-train-loss">—</strong></div>
-<div class="metric-label" style="margin-top:14px">Recent worker activity · refreshed from persisted progress</div>
-<div id="focus-recent-activity" class="focus-activity"><div class="empty">No research activity yet.</div></div>
+<div class="focus-activity-toolbar"><strong class="metric-label">Live worker activity · saved event history</strong><span id="focus-activity-connection" class="tag">Connecting…</span></div>
+<div class="focus-activity-toolbar"><span class="small muted" id="focus-activity-count">Loading saved activity…</span><button class="btn" id="focus-load-earlier" hidden>Load earlier activity</button></div>
+<div id="focus-recent-activity" class="focus-activity" role="log" aria-label="Saved worker activity" aria-live="off"><div class="empty">Loading worker events…</div></div>
 <div class="mline"><span class="muted">Current focus</span><strong>تاريخ المملكة العربية السعودية</strong></div>
 <div class="mline"><span class="muted">Research progress / UTC daily cap</span><strong id="focus-daily">—</strong></div>
 <div class="mline"><span class="muted">Current training status</span><strong id="focus-training-status">Not checked</strong></div>
@@ -161,18 +167,93 @@ function focusTimer(){
  const ss=String(sec%60).padStart(2,"0");
  text("focus-elapsed",h+":"+m+":"+ss);
 }
-function renderFocusActivity(events){
- const area=$("focus-recent-activity");area.replaceChildren();
- if(!events||events.length===0){
-  const row=document.createElement("div");row.className="empty";
-  row.textContent="No worker events recorded yet.";area.append(row);return;
+// Store every worker event in SQLite. The browser uses cursor-based pages:
+// no fixed historical retention limit, and older pages remain loadable.
+const activityCursor={ready:false,busy:false,newest:0,oldest:0,hasOlder:false,total:0};
+function activityEventRow(event,isNew){
+ const row=document.createElement("div");
+ row.className="focus-event"+(isNew?" new":"");
+ row.dataset.activityId=String(event.id);
+ row.textContent=dateFmt(event.at_utc)+" · "+
+   String(event.kind||"activity").replaceAll("_"," ")+
+   (event.phase?" · "+event.phase.replaceAll("_"," "):"")+
+   (event.detail?" · "+event.detail:"")+
+   (event.url?" · "+event.url:"");
+ return row;
+}
+function displayActivityCounts(){
+ const area=$("focus-recent-activity");
+ const count=area.querySelectorAll(".focus-event").length;
+ text("focus-activity-count",count.toLocaleString()+" loaded · "+
+   Number(activityCursor.total).toLocaleString()+" stored events · full history available");
+ $("focus-load-earlier").hidden=!activityCursor.hasOlder;
+ if(count===0){
+  const empty=document.createElement("div");empty.className="empty";
+  empty.textContent="No recorded worker activity yet. New events will appear automatically.";
+  area.replaceChildren(empty);
  }
- for(const x of [...events].reverse().slice(0,10)){
-  const row=document.createElement("div");row.className="focus-event";
-  row.textContent=dateFmt(x.at_utc)+" · "+String(x.kind||"activity").replaceAll("_"," ") +
-   (x.detail?" · "+x.detail:"")+(x.url?" · "+x.url:"");
-  area.append(row);
+}
+function addActivityEvents(events,mode){
+ const area=$("focus-recent-activity");
+ if(!Array.isArray(events)||!events.length)return;
+ const placeholder=area.querySelector(".empty");
+ if(placeholder)placeholder.remove();
+ const frag=document.createDocumentFragment();
+ // API returns ascending IDs; the UI shows newest first.
+ for(const event of [...events].reverse()){
+  frag.append(activityEventRow(event,mode==="newer"));
  }
+ if(mode==="older")area.append(frag);
+ else area.prepend(frag);
+ const firstId=Number(events[0].id),lastId=Number(events[events.length-1].id);
+ activityCursor.oldest=activityCursor.oldest?
+   Math.min(activityCursor.oldest,firstId):firstId;
+ activityCursor.newest=Math.max(activityCursor.newest,lastId);
+}
+async function pollFocusActivity(){
+ if(activityCursor.busy)return;
+ activityCursor.busy=true;
+ try{
+  if(!activityCursor.ready){
+   const result=await api("/api/focus/activity?limit=150");
+   addActivityEvents(result.events,"initial");
+   activityCursor.total=result.total_events||0;
+   activityCursor.hasOlder=!!result.has_more;
+   activityCursor.ready=true;
+  }else{
+   // Catch up from the last ID. Multiple pages may be needed after sleep
+   // or a browser reconnect; the next tick continues if still behind.
+   let more=true,loadedPages=0;
+   while(more&&loadedPages<5){
+    const result=await api("/api/focus/activity?after="+activityCursor.newest+"&limit=150");
+    addActivityEvents(result.events,"newer");
+    activityCursor.total=result.total_events||0;
+    more=!!result.has_more;
+    loadedPages++;
+   }
+  }
+  text("focus-activity-connection","LIVE · auto-updates every second");
+  $("focus-activity-connection").className="tag good";
+  displayActivityCounts();
+ }catch(err){
+  text("focus-activity-connection","Disconnected · retrying");
+  $("focus-activity-connection").className="tag warn";
+ }finally{activityCursor.busy=false}
+}
+async function loadOlderFocusActivity(){
+ if(activityCursor.busy||!activityCursor.ready||
+    !activityCursor.hasOlder||!activityCursor.oldest)return;
+ activityCursor.busy=true;
+ try{
+  const result=await api("/api/focus/activity?before="+activityCursor.oldest+"&limit=150");
+  addActivityEvents(result.events,"older");
+  activityCursor.total=result.total_events||0;
+  activityCursor.hasOlder=!!result.has_more;
+  displayActivityCounts();
+ }catch(err){
+  text("focus-activity-connection","History load failed · retry");
+  $("focus-activity-connection").className="tag warn";
+ }finally{activityCursor.busy=false}
 }
 
 async function api(path,body){
@@ -241,7 +322,6 @@ async function refresh(){
    " current optimizer steps · "+(f.training_steps_this_run||0)+" this run");
  text("focus-train-loss",f.current_training_loss??"—");
  text("focus-current-url",f.current_url||"—");
- renderFocusActivity(f.recent_activity);
  focusTimer();
  $("focus-state").className="tag "+(f.process_running?"good":"");
  text("focus-pages",f.unique_pages_added||0);
@@ -355,7 +435,10 @@ async function refreshAndCheck(){
  }
 }
 $("send").onclick=send;$("question").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();send()}};
-refreshAndCheck();refreshPlan();setInterval(refreshAndCheck,2500);
+$("focus-load-earlier").onclick=loadOlderFocusActivity;
+refreshAndCheck();refreshPlan();pollFocusActivity();
+setInterval(refreshAndCheck,2500);
+setInterval(pollFocusActivity,1000); // Fetch new durable events without page refresh
 setInterval(focusTimer,1000); // Display only; worker runs independently of page
 </script>
 </body>
