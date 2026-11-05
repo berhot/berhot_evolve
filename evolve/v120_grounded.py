@@ -87,7 +87,10 @@ def extract_definition(sentence):
     # A generic "Transcript" label is an audio/video content preface, not
     # part of the scientific subject in "Transcript Sun is a star".
     # The subject-specific title fallback handles such excerpts separately.
-    if re.match(r"^(?:(?:video|audio)\s+)?transcript\s+(?=[A-Z])", s, re.I):
+    transcript_label = re.match(
+        r"^(?:(?:video|audio)\s+)?transcript\s+", s, re.I)
+    if (transcript_label and
+            s[transcript_label.end():transcript_label.end() + 1].isupper()):
         return None
     if not 18 <= len(s) <= 320 or not 4 <= len(s.split()) <= 62:
         return None
