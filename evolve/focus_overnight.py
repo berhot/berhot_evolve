@@ -548,6 +548,12 @@ def _run_page(store, settings, state, profile, fetcher=None,
             "curiosity": arabic_curiosity(
                 content, url, outcome["clean_sha256"], profile),
         }
+        # Persist focus membership independently of the bounded UI
+        # observation snapshot. This survives restarts and allows Studio to
+        # show meaningful all-run totals even when this-run counters reset.
+        store.record_focus_archive(
+            state["profile"], url, outcome["clean_sha256"],
+            source_questions=len(saved["curiosity"]))
         # New quote labels remain unverified; no rights are granted.
         memory_key = _HISTORY + state["profile"]
         records = store.get(memory_key, []) or []
