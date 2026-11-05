@@ -2,6 +2,8 @@
 import copy
 import http.client
 import json
+import shutil
+import subprocess
 from pathlib import Path
 import tempfile
 import threading
@@ -93,6 +95,48 @@ class InspectorTests(unittest.TestCase):
                     controller.shutdown()
                 if lock is not None:
                     release_lock(lock)
+                store.close()
+
+    def test_separate_verified_source_answer_is_not_focus_model_output(self):
+        with tempfile.TemporaryDirectory() as root:
+            cfg = self._settings(root)
+            store = Store(root)
+            url = "https://example.org/saudi-history"
+            try:
+                store.put("focus_observations_" + PROFILE, [{
+                    "title": "History", "url": url, "host": "example.org",
+                    "rights": "UNKNOWN", "noai": False,
+                    "source_sha256": "f" * 64, "curiosity": [],
+                }])
+                store.add_research_question(
+                    "History", "What is history?", url, "History")
+                row = store.db.execute(
+                    "SELECT id FROM research_questions WHERE source_url=?",
+                    (url,)).fetchone()
+                store.save_verified_answer(
+                    row["id"], "History", "A record of past events",
+                    evidence=[
+                        {"publisher": "example.org", "license": "UNKNOWN"},
+                        {"publisher": "different.example.net",
+                         "license": "UNKNOWN"},
+                    ],
+                    method="two_source_definition_overlap_v1")
+                ctrl = LearningController(cfg, interval=30)
+                try:
+                    result = ctrl.focus_inspector()
+                    q = result["curiosity"]
+                    self.assertEqual(
+                        q["separately_recorded_verified_answer_count"], 1)
+                    self.assertEqual(q["verified_autonomous_answers"], 0)
+                    self.assertEqual(q["model_generated_answers"], 0)
+                    entry = q["separately_recorded_verified_answers"][0]
+                    self.assertFalse(entry["focus_model_generated"])
+                    self.assertFalse(entry["training_eligible"])
+                    self.assertEqual(entry["answer"], "A record of past events")
+                    self.assertEqual(entry["source_url"], url)
+                finally:
+                    ctrl.shutdown()
+            finally:
                 store.close()
 
     def test_last_attempt_and_accepted_checkpoint_not_conflated(self):
@@ -188,6 +232,22 @@ class InspectorTests(unittest.TestCase):
         self.assertNotIn("location.reload(true)", html)
         self.assertIn("textContent", html)
         self.assertIn("full worker event history", html)
+        self.assertIn("separately_recorded_verified_answers", html)
+
+    def test_ui_javascript_is_syntactically_valid_when_node_installed(self):
+        binary = shutil.which("node")
+        if not binary:
+            self.skipTest("Node not installed on this test runner")
+        html = (Path(__file__).resolve().parents[1] /
+                "evolve" / "studio.html").read_text("utf-8")
+        script = html.split("<script>", 1)[1].split("</script>", 1)[0]
+        with tempfile.TemporaryDirectory() as folder:
+            file = Path(folder) / "inspector-script.js"
+            file.write_text(script, encoding="utf-8")
+            result = subprocess.run(
+                [binary, "--check", str(file)],
+                capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":
