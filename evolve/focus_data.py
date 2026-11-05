@@ -58,11 +58,10 @@ _EVENT_RULES = (
 _GENERAL_EVENT = re.compile(
     r"(?P<verb>تأسست|تأسس|أُسست|افتتح|أعلن|أُعلن|"
     r"تولى|ولد|توفي|بدأ|استعاد|نشأت|تأسيس)"
-    r"\\s+(?P<subject>[\u0621-\u064a\u064b-\u065f\s]{9,74}?)"
-    r"\\s+(?:في\\s+)?(?:عام|سنة)\\s+"
-    r"(?P<year>(?:1[4-9]\\d{2}|20\\d{2}))"
+    r"\s+(?P<subject>[\u0621-\u064a\u064b-\u065f\s]{9,74}?)"
+    r"\s+(?:في\s+)?(?:عام|سنة)\s+"
+    r"(?P<year>(?:1[4-9]\d{2}|20\d{2}))"
 )
-_GENERAL_EVENT = re.compile(_GENERAL_EVENT.pattern.replace('\\\\', '\\'))
 
 
 def get_profile(name):
