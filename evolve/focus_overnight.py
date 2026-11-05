@@ -70,9 +70,10 @@ def plan(profile_name="saudi-history-ar", extra_urls=None):
         "language": profile["language"],
         "initial_seed_hosts": list(profile["initial_seed_hosts"]),
         "no_permanent_website_allowlist": True,
-        "discovery": "cross_publisher_topical_links_and_optional_brave_search",
-        "search_provider": "Brave Web Search API only when BRAVE_SEARCH_API_KEY supplied",
-        "search_api_key_configured": bool(os.environ.get("BRAVE_SEARCH_API_KEY")),
+        "discovery": "cross_publisher_topical_links_and_keyless_headless_search",
+        "search_provider": "duckduckgo (Google/Bing automated result access blocked by current policies)",
+        "search_api_key_required": False,
+        "optional_browser_install_needed": True,
         "seed_urls": list(dict.fromkeys(seeds)),
         "no_training_rights_inferred": True,
         "research_only_until_per_article_rights_review": True,
@@ -175,10 +176,10 @@ def _topic_link(url, profile):
 
 
 def _rollover_if_new_utc_day(state):
-    """Refresh the finite research queue once daily for the continuous mode.
+    """Track the UTC day, retaining discovered links and visited hashes.
 
-    Page count is per UTC day, never unbounded; daily quota and URL robots
-    rules are enforced separately by the existing fetcher.
+    Legacy bounded runs reset their per-day counters. Open-ended research
+    does not stop at a numeric count but still obeys robots and pacing.
     """
     if not state.get("until_stopped"):
         return False
