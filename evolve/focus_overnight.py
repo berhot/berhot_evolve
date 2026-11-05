@@ -249,7 +249,7 @@ def _rollover_if_new_utc_day(state):
 
 
 def _run_page(store, settings, state, profile, fetcher=None,
-              sleep_fn=time.sleep):
+              sleep_fn=time.sleep, time_fn=time.time):
     _rollover_if_new_utc_day(state)
     if (state.get("until_stopped") and
             not state.get("no_fixed_quotas") and
@@ -257,23 +257,43 @@ def _run_page(store, settings, state, profile, fetcher=None,
         return {"status": "daily_page_cap_reached"}
     if not state["_queue"]:
         return {"status": "queue_empty"}
-    item = state["_queue"].pop(0)
+    if state.get("no_fixed_quotas"):
+        # Examine the pending frontier ONCE. A temporarily paced publisher
+        # must not waste a page slot while another host has eligible work.
+        # Rotate paced entries to the tail without discarding or fetching them.
+        earliest = None
+        item = None
+        now = time_fn()
+        for _ in range(len(state["_queue"])):
+            candidate = state["_queue"].pop(0)
+            candidate_host = urlsplit(candidate["url"]).hostname
+            last = float(state["_host_last_at"].get(candidate_host, 0) or 0)
+            gap = max(0, int(state.get("minimum_host_gap_seconds", 20)))
+            elapsed = now - last
+            if 0 <= elapsed < gap:
+                remaining = gap - elapsed
+                state["_queue"].append(candidate)
+                if earliest is None or remaining < earliest[0]:
+                    earliest = (remaining, candidate_host)
+                continue
+            item = candidate
+            break
+        if item is None:
+            return {
+                "status": "publisher_pacing_wait",
+                "host": earliest[1],
+                "retry_after_seconds": round(earliest[0], 2),
+            }
+    else:
+        item = state["_queue"].pop(0)
     url, depth = item["url"], item["depth"]
     host = urlsplit(url).hostname
-    # Fair use: no single site consumes the whole day. This is a request
-    # quota, NOT a permanent list of permitted websites.
+    # Finite legacy runs retain the publisher daily quota. Open-ended runs
+    # instead respect a minimum delay between requests to each host.
     if not state.get("no_fixed_quotas") and (
             state["_host_day_used"].get(host, 0) >= 4):
         state["_queue"].append(item)
         return {"status": "publisher_daily_quota", "host": host}
-    if state.get("no_fixed_quotas"):
-        last = float(state["_host_last_at"].get(host, 0) or 0)
-        wait = int(state.get("minimum_host_gap_seconds", 20))
-        elapsed = time.time() - last
-        if 0 <= elapsed < wait:
-            state["_queue"].append(item)
-            return {"status": "publisher_pacing_wait", "host": host,
-                    "retry_after_seconds": round(wait - elapsed, 2)}
     if url in state["_seen"]:
         return {"status": "already_seen", "url": url}
     state["_seen"].add(url)
@@ -288,7 +308,7 @@ def _run_page(store, settings, state, profile, fetcher=None,
         return {"status": "daily_budget_exhausted"}
     key = "web_requests_" + quota["day_utc"]
     store.put(key, quota["used"] + 1)
-    state["_host_last_at"][host] = time.time()
+    state["_host_last_at"][host] = time_fn()
     state["pages_attempted"] += 1
     state["pages_attempted_today"] += 1
     state["_host_day_used"][host] = state["_host_day_used"].get(host, 0) + 1
@@ -437,9 +457,10 @@ def _run_page(store, settings, state, profile, fetcher=None,
 
 
 def cycle(store, settings, state, pages=3, train_steps=40,
-          fetcher=None, sleep_fn=time.sleep, search_fn=None):
-    if not 1 <= int(pages) <= 8:
-        raise ValueError("pages per cycle must be 1..8")
+          fetcher=None, sleep_fn=time.sleep, search_fn=None,
+          time_fn=time.time):
+    if not 1 <= int(pages) <= 50:
+        raise ValueError("pages per cycle must be 1..50")
     profile = get_profile(state["profile"])
     observations = store.get(_HISTORY + state["profile"], []) or []
     _publish(store, state, "searching_research_sources",
@@ -480,34 +501,94 @@ def cycle(store, settings, state, pages=3, train_steps=40,
                      (" · " + str(search["error_type"])
                       if search.get("error_type") else "")))
     outcomes = []
-    for i in range(int(pages)):
+    pages_at_cycle_start = int(state["pages_attempted"])
+    pacing_waits = 0
+    checks = 0
+    # Guard against an unexpectedly malformed/duplicate frontier. In
+    # open-ended mode ONLY actual network fetch attempts use page slots.
+    # Existing bounded mode still performs at most 'pages' selections.
+    max_checks = (max(100, len(state["_queue"]) * 2, int(pages) * 20)
+                  if state.get("no_fixed_quotas") else int(pages))
+    while checks < max_checks:
+        if (state.get("no_fixed_quotas") and
+                state["pages_attempted"] - pages_at_cycle_start >= int(pages)):
+            break
+        checks += 1
         if stop_requested(store, state["run_id"], state["profile"]):
             outcomes.append({"status": "stop_requested"})
             break
         if (not state.get("until_stopped") and
                 state["pages_attempted"] >= state["max_pages_this_run"]):
             break
-        result = _run_page(store, settings, state, profile, fetcher=fetcher)
-        if result["status"] in (
+        result = _run_page(
+            store, settings, state, profile,
+            fetcher=fetcher, sleep_fn=sleep_fn, time_fn=time_fn)
+        status = result["status"]
+        if status in (
                 "queue_empty", "daily_budget_exhausted",
-                "daily_page_cap_reached"):
+                "daily_page_cap_reached", "run_cap_reached"):
             outcomes.append(result)
             break
-        outcomes.append(result)
-        if result["status"] in (
-                "publisher_pacing_wait", "publisher_daily_quota",
-                "queue_empty", "already_seen", "daily_budget_exhausted",
-                "daily_page_cap_reached", "skipped_archive",
-                "run_cap_reached"):
+        if status == "publisher_pacing_wait":
+            pacing_waits += 1
             _publish(
-                store, state, "source_request_deferred",
-                event=result["status"], url=result.get("url"),
-                detail=(str(result.get("host") or "") + " " +
-                        str(result.get("retry_after_seconds") or "")).strip(),
+                store, state, "waiting_for_publisher_pacing",
+                event="publisher_pacing_wait", detail=(
+                    str(result.get("host") or "") + " · " +
+                    str(result.get("retry_after_seconds", 0)) +
+                    "s until next allowed request"),
             )
-        if (fetcher is None and i < int(pages) - 1 and
-                float(settings.get("crawl_delay_seconds", 2)) > 0):
+            if not state.get("no_fixed_quotas"):
+                outcomes.append(result)
+                continue
+            # All queued publishers are paced. Sleep only until the earliest
+            # eligible host; stop requests are checked every <=2 seconds.
+            # The 15-minute cycle interval is NOT applied between pages.
+            delay = max(0, float(result.get("retry_after_seconds", 0)))
+            if delay < 0.01:
+                outcomes.append(result)
+                break
+            started_wait = time_fn()
+            remaining = delay + 0.1
+            while remaining > 0:
+                if stop_requested(store, state["run_id"], state["profile"]):
+                    break
+                chunk = min(2.0, remaining)
+                sleep_fn(chunk)
+                remaining -= chunk
+            if stop_requested(store, state["run_id"], state["profile"]):
+                outcomes.append({"status": "stop_requested"})
+                break
+            if time_fn() - started_wait < delay * 0.5:
+                # A dry-run/fake sleep that does not advance clock time must
+                # not leave a test or the worker in an infinite busy loop.
+                outcomes.append(result)
+                break
+            continue
+        outcomes.append(result)
+        if status in ("publisher_daily_quota", "already_seen",
+                      "skipped_archive"):
+            _publish(
+                store, state, "source_request_deferred", event=status,
+                url=result.get("url"),
+                detail=str(result.get("host") or ""),
+            )
+        # Respect the cross-request crawl delay, but do not sleep after
+        # pure queue/skipped decisions that made no network request.
+        if (fetcher is None and
+                state["pages_attempted"] > pages_at_cycle_start and
+                status not in ("publisher_daily_quota", "already_seen") and
+                float(settings.get("crawl_delay_seconds", 2)) > 0 and
+                (state.get("no_fixed_quotas") or checks < int(pages))):
             sleep_fn(max(2.0, float(settings.get("crawl_delay_seconds", 2))))
+    completed_page_attempts = state["pages_attempted"] - pages_at_cycle_start
+    _publish(
+        store, state, "research_cycle_pages_complete",
+        event="cycle_research_summary",
+        detail=(str(completed_page_attempts) + "/" + str(pages) +
+                " actual page attempts · " + str(pacing_waits) +
+                " publisher pacing waits"),
+    )
     observations = store.get(_HISTORY + state["profile"], []) or []
     state["research_review_leads"] = review_leads(observations)[:20]
     base_steps = int(state["training_steps_this_run"])
@@ -585,6 +666,9 @@ def cycle(store, settings, state, pages=3, train_steps=40,
         "status": "cycle_completed",
         "cycle": state["cycles_completed"],
         "pages_attempted_total": state["pages_attempted"],
+        "pages_attempted_this_cycle": completed_page_attempts,
+        "pages_target_this_cycle": int(pages),
+        "publisher_pacing_waits_this_cycle": pacing_waits,
         "pages_archived_total": state["pages_archived"],
         "new_unique_pages_total": state["new_unique_pages"],
         "new_questions_total": state["candidate_questions_created_this_run"],
@@ -681,8 +765,8 @@ def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
         raise ValueError("Unknown browser search provider")
     if not 1 <= int(interval_minutes) <= 60:
         raise ValueError("interval-minutes must be 1..60")
-    if not 1 <= int(pages_per_cycle) <= 8:
-        raise ValueError("pages-per-cycle must be 1..8")
+    if not 1 <= int(pages_per_cycle) <= 50:
+        raise ValueError("pages-per-cycle must be 1..50")
     lock_handle = acquire_lock(store, profile_name)
     try:
         state = init_state(store, profile_name, extra_urls, max_pages=max_pages)
