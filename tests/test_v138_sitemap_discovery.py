@@ -185,6 +185,37 @@ class SitemapDiscoveryTests(unittest.TestCase):
         self.assertEqual(len(calls), 3)
         self.assertEqual(cooling["network_requests"], 0)
 
+    def test_corrected_parser_gets_one_fresh_scan_after_old_cooldown(self):
+        calls = []
+        def fake_probe(host):
+            calls.append(host)
+            return {
+                "status": "sitemap_no_article_urls",
+                "network_requests": 0,
+                "url_candidates": [],
+            }
+        key = "focus_sitemap_checks_" + self.profile["name_ar"]
+        self.store.put(key, {
+            "saudipedia.com": {
+                "checked_at": 49_999,
+                "status": "sitemap_no_article_urls",
+                "candidate_count": 0,
+                "scan_version": 1,
+            },
+        })
+        retried = discover_publisher_sitemaps(
+            self.store, self.profile, [], sitemap_fn=fake_probe,
+            now=50_000)
+        self.assertEqual(retried["host"], "saudipedia.com")
+        self.assertEqual(calls, ["saudipedia.com"])
+        history = self.store.get(key)
+        self.assertEqual(history["saudipedia.com"]["scan_version"], 2)
+        next_publisher = discover_publisher_sitemaps(
+            self.store, self.profile, [], sitemap_fn=fake_probe,
+            now=50_001)
+        self.assertEqual(next_publisher["host"], "www.spa.gov.sa")
+        self.assertEqual(calls, ["saudipedia.com", "www.spa.gov.sa"])
+
     def test_large_sitemap_drains_persistent_candidate_backlog(self):
         now = 50_000
         calls = []
