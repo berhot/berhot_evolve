@@ -100,6 +100,20 @@ class Store:
                 created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            -- Append-only worker activity: no fixed history retention cap.
+            CREATE TABLE IF NOT EXISTS focus_activity_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_key TEXT NOT NULL UNIQUE,
+                profile TEXT NOT NULL,
+                run_id TEXT NOT NULL,
+                at_utc TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                phase TEXT NOT NULL DEFAULT '',
+                detail TEXT NOT NULL DEFAULT '',
+                url TEXT
+            );
+            CREATE INDEX IF NOT EXISTS focus_activity_profile_id_idx
+              ON focus_activity_events(profile,id);
         """)
         # Migrate existing v0.3 databases without losing discoveries.
         columns = {row[1] for row in self.db.execute("PRAGMA table_info(concept_tasks)")}
@@ -410,6 +424,103 @@ class Store:
         self.db.execute("INSERT INTO kv(key,value) VALUES(?,?) "
                         "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, json.dumps(value)))
         self.db.commit()
+
+    def append_focus_activity(self, profile, run_id, at_utc, kind,
+                              *, phase="", detail="", url=None):
+        """Append one factual worker event without a total-history limit.
+
+        Idempotent event keys permit migration of the previous bounded
+        recent_activity list while the older worker is still running.
+        This is an audit trail, not a neural-training dataset.
+        """
+        payload = [
+            str(profile), str(run_id), str(at_utc), str(kind),
+            str(detail or ""), str(url or ""),
+        ]
+        event_key = hashlib.sha256(json.dumps(
+            payload, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")).hexdigest()
+        cur = self.db.execute(
+            "INSERT OR IGNORE INTO focus_activity_events"
+            "(event_key,profile,run_id,at_utc,kind,phase,detail,url)"
+            " VALUES(?,?,?,?,?,?,?,?)",
+            (event_key, str(profile), str(run_id), str(at_utc),
+             str(kind), str(phase or ""), str(detail or "")[:500],
+             str(url)[:1400] if url else None),
+        )
+        self.db.commit()
+        return bool(cur.rowcount)
+
+    def backfill_focus_activity(self, profile, run=None):
+        """Recover the available legacy 16-event snapshot, without duplicates.
+
+        Pre-existing truncated events cannot be reconstructed from the
+        snapshot; new runs retain their entire activity history here.
+        """
+        run = run if run is not None else self.get("focus_run_" + profile, {})
+        run = run or {}
+        if not run.get("run_id"):
+            return
+        for event in run.get("recent_activity", []):
+            if not isinstance(event, dict) or not event.get("at_utc"):
+                continue
+            self.append_focus_activity(
+                profile, run["run_id"], event["at_utc"],
+                event.get("kind", "activity"), phase=event.get("phase", ""),
+                detail=event.get("detail", ""), url=event.get("url"),
+            )
+
+    def focus_activity(self, profile, *, after=None, before=None, limit=150):
+        """Cursor-paginate all saved events without truncating history.
+
+        Missing cursor = latest; after = new messages; before = older.
+        A per-response page size protects the browser but is not a retention
+        or total view limit.
+        """
+        if after is not None and before is not None:
+            raise ValueError("Supply either after or before, not both")
+        if not isinstance(limit, int) or not 1 <= limit <= 250:
+            raise ValueError("Activity page size must be 1..250")
+        params = [str(profile)]
+        if before is not None:
+            if not isinstance(before, int) or before < 1:
+                raise ValueError("Invalid before cursor")
+            sql = ("SELECT * FROM focus_activity_events "
+                   "WHERE profile=? AND id<? ORDER BY id DESC LIMIT ?")
+            params.extend([before, limit + 1])
+            direction = "older"
+        elif after is not None:
+            if not isinstance(after, int) or after < 0:
+                raise ValueError("Invalid after cursor")
+            sql = ("SELECT * FROM focus_activity_events "
+                   "WHERE profile=? AND id>? ORDER BY id ASC LIMIT ?")
+            params.extend([after, limit + 1])
+            direction = "newer"
+        else:
+            sql = ("SELECT * FROM focus_activity_events "
+                   "WHERE profile=? ORDER BY id DESC LIMIT ?")
+            params.append(limit + 1)
+            direction = "latest"
+        rows = self.db.execute(sql, params).fetchall()
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        if direction in ("older", "latest"):
+            rows.reverse()
+        total = self.db.execute(
+            "SELECT COUNT(*) FROM focus_activity_events WHERE profile=?",
+            (str(profile),),
+        ).fetchone()[0]
+        return {
+            "status": "ok", "profile": profile, "direction": direction,
+            "events": [
+                {key: row[key] for key in (
+                    "id", "profile", "run_id", "at_utc", "kind",
+                    "phase", "detail", "url",
+                )} for row in rows
+            ],
+            "has_more": has_more, "total_events": int(total),
+            "history_retention_limit": None,
+        }
 
     def log(self, action, status, details):
         self.db.execute("INSERT INTO runs(action,status,details,created_at) VALUES(?,?,?,?)",
