@@ -134,6 +134,44 @@ class FocusSourceFailureTests(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_http_429_pauses_all_urls_on_same_publisher(self):
+        with tempfile.TemporaryDirectory() as root:
+            store, settings, state = self.setup(root)
+            try:
+                blocked_url = "https://saudipedia.com/article-test"
+                other_same_host = "https://saudipedia.com/another-article"
+                independent = "https://www.spa.gov.sa/ar/article-1"
+                state["_queue"].extend([
+                    {"url": other_same_host, "depth": 0},
+                    {"url": independent, "depth": 0},
+                ])
+                def limited(_url):
+                    raise WebSourceError("HTTP 429")
+                failure = _run_page(
+                    store, settings, state, get_profile(PROFILE),
+                    fetcher=limited, time_fn=lambda: 1000.0)
+                self.assertEqual(failure["error"], "http_429_rate_limited")
+                self.assertEqual(
+                    state["_host_cooldown_until"]["saudipedia.com"],
+                    1900.0)
+                seen = []
+                def fetch(url):
+                    seen.append(url)
+                    return source_html()
+                next_result = _run_page(
+                    store, settings, state, get_profile(PROFILE),
+                    fetcher=fetch, time_fn=lambda: 1001.0)
+                self.assertEqual(next_result["url"], independent)
+                self.assertNotIn(other_same_host, seen)
+                delayed = _run_page(
+                    store, settings, state, get_profile(PROFILE),
+                    fetcher=lambda _: self.fail("publisher still limited"),
+                    time_fn=lambda: 1200.0)
+                self.assertEqual(delayed["status"], "source_retry_wait")
+                self.assertGreater(delayed["retry_after_seconds"], 600)
+            finally:
+                store.close()
+
     def test_retry_exhaustion_and_queue_survives_worker_restart(self):
         with tempfile.TemporaryDirectory() as root:
             store, settings, state = self.setup(root)
