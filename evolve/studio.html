@@ -523,7 +523,10 @@ function inspectorModel(parent,heading,record){
  inspectorKey(section,"Held-out test loss (diagnostic only)",record.heldout_test_loss_diagnostic);
  inspectorKey(section,"Last training-batch loss",record.train_loss_last_batch);
  inspectorKey(section,"Checkpoint SHA-256",record.sha256||"Not recorded");
+ inspectorKey(section,"Local checkpoint file",record.checkpoint_file_present?"Present":"Missing or inaccessible");
+ inspectorKey(section,"SHA-256 matches file",record.checkpoint_sha256_verified?"Verified":"NOT VERIFIED");
  inspectorKey(section,"Recorded at",record.created_at_utc?dateFmt(record.created_at_utc):"Not recorded");
+ if(!record.checkpoint_sha256_verified)inspectorInfo(section,"Checkpoint integrity is not verified. Do not count this record as independently confirmed model bytes.",true);
  if(Number.isFinite(record.validation_before)&&Number.isFinite(record.validation_after)){
   const delta=Number(record.validation_before)-Number(record.validation_after);
   inspectorInfo(section,delta>0?"Measured validation loss decreased by "+delta.toFixed(6)+". This indicates better prediction on the measured validation set, not independent factual reasoning.":"No measured improvement in validation loss.");
