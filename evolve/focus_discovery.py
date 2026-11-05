@@ -196,8 +196,18 @@ def discover_search_urls(store, profile, observations, *, search_fn=None):
             "url_candidates": [],
         }
     queries = _queries_from_observations(profile, observations)
-    selected = next((q for q in queries if hashlib.sha256(
-        q.encode("utf-8")).hexdigest() not in done), None)
+    historical = store.get("focus_search_history_" + profile["name_ar"]) or {}
+    # Select previously unseen observed questions first; otherwise revisit
+    # the least-recently-searched question on a later day. Without this
+    # rotation the first four seeds would monopolize every UTC day's budget.
+    eligible = [
+        (historical.get(hashlib.sha256(q.encode("utf-8")).hexdigest(), ""),
+         i, q)
+        for i, q in enumerate(queries)
+        if hashlib.sha256(q.encode("utf-8")).hexdigest() not in done
+    ]
+    eligible.sort(key=lambda triple: (triple[0], triple[1]))
+    selected = eligible[0][2] if eligible else None
     if not selected:
         return {"status": "no_new_search_questions_today",
                 "queries_attempted": 0, "url_candidates": []}
@@ -231,6 +241,10 @@ def run_one_search(store, settings, profile, observations,
     store.put("focus_search_used_" + day,
               int(store.get("focus_search_used_" + day, 0)) + 1)
     store.put(done_key, (done + [planned["query_hash"]])[-100:])
+    history_key = "focus_search_history_" + profile["name_ar"]
+    history = store.get(history_key) or {}
+    history[planned["query_hash"]] = day
+    store.put(history_key, history)
     try:
         results = (
             search_fn(planned["query"]) if search_fn is not None
