@@ -37,7 +37,31 @@ def _hash(s):
 
 def _public_state(state):
     return {key: value for key, value in state.items()
-            if key not in ("_queue", "_seen", "_seeded", "_last_errors")}
+            if key not in ("_queue", "_seen", "_seeded", "_last_errors",
+                           "_host_day_used", "_host_last_at")}
+
+
+def _publish(store, state, phase, *, url=None, event=None, detail=None):
+    """Persist factual per-operation progress for the independent Studio UI.
+
+    The browser only observes this state; refreshing it never controls the
+    actual OS worker. All counters are real measured operations, not estimates.
+    """
+    now = _utc()
+    state["current_phase"] = phase
+    state["current_url"] = url
+    state["updated_at_utc"] = now
+    state["heartbeat_at_utc"] = now
+    if event:
+        events = state.setdefault("recent_activity", [])
+        events.append({
+            "at_utc": now,
+            "kind": event,
+            "detail": str(detail or "")[:180],
+            "url": url,
+        })
+        state["recent_activity"] = events[-16:]
+    store.put(_KEY + state["profile"], _public_state(state))
 
 
 def _enqueue(state, url, depth=0):
@@ -111,6 +135,19 @@ def init_state(store, profile_name, extra_urls=None, max_pages=24):
         "_host_last_at": {},
         "worker_pid": None,
         "heartbeat_at_utc": now,
+        "current_phase": "not_started",
+        "current_url": None,
+        "recent_activity": [],
+        "pages_read": 0,
+        "html_bytes_read": 0,
+        "text_characters_extracted": 0,
+        "text_words_extracted": 0,
+        "text_utf8_byte_tokens_extracted": 0,
+        "unique_archived_utf8_byte_tokens": 0,
+        "training_byte_tokens_processed": 0,
+        "current_training_steps_done": 0,
+        "current_training_steps_target": 0,
+        "current_training_loss": None,
         "stop_requested": False,
         "pages_attempted": 0, "pages_archived": 0,
         "new_unique_pages": 0, "exact_duplicate_pages": 0,
@@ -243,14 +280,31 @@ def _run_page(store, settings, state, profile, fetcher=None,
     state["pages_attempted"] += 1
     state["pages_attempted_today"] += 1
     state["_host_day_used"][host] = state["_host_day_used"].get(host, 0) + 1
+    _publish(store, state, "reading_article", url=url,
+             event="fetch_started")
     try:
         # fetch_page already enforces TLS, DNS public-only, robots, MIME,
         # response size and refusal to follow redirects.
         html = fetcher(url) if fetcher else fetch_page(url, settings)
         content, title, links, noai = extract(html)
+        raw_bytes = len(html) if isinstance(html, bytes) else len(
+            html.encode("utf-8"))
+        utf8_tokens = len(content.encode("utf-8"))
+        state["pages_read"] += 1
+        state["html_bytes_read"] += raw_bytes
+        state["text_characters_extracted"] += len(content)
+        state["text_words_extracted"] += len(content.split())
+        # The current Arabic focus model is byte-level; each UTF-8 byte is
+        # exactly one potential token ID (0..255), NOT a JSM/BPE token.
+        state["text_utf8_byte_tokens_extracted"] += utf8_tokens
+        _publish(store, state, "checking_language_and_relevance", url=url,
+                 event="article_read", detail=(
+                     str(utf8_tokens) + " UTF-8 byte tokens extracted"))
         quality = topic_relevance(content, title, profile)
         if not quality["language_ok"] or not quality["topical"] or len(content) < 400:
             state["skipped_off_topic_or_non_arabic"] += 1
+            _publish(store, state, "skipped_irrelevant_page", url=url,
+                     event="page_skipped", detail="not Arabic Saudi-history research")
             return {"status": "off_topic_or_non_arabic",
                     "url": url, "language_ratio_ar": quality["language_ratio_ar"]}
         # A re-fetched source might have an earlier human license review;
@@ -261,6 +315,9 @@ def _run_page(store, settings, state, profile, fetcher=None,
         if existing and existing["rights_status"] != "UNKNOWN":
             # Cannot refresh a previously approved source without a
             # re-review of its new content; use only existing immutable data.
+            _publish(store, state, "preserving_existing_rights_review",
+                     url=url, event="page_skipped",
+                     detail="approved snapshot protected against overwrite")
             return {"status": "already_rights_reviewed_no_overwrite", "url": url}
         declared, evidence = detect_declared_rights(html, url)
         outcome = archive_page(store, url, html, content, title=title,
@@ -269,6 +326,8 @@ def _run_page(store, settings, state, profile, fetcher=None,
         if outcome["status"] != "archived":
             return {"status": "skipped_archive", "url": url}
         state["pages_archived"] += 1
+        if outcome["new_unique_text"]:
+            state["unique_archived_utf8_byte_tokens"] += utf8_tokens
         state["new_unique_pages"] += int(outcome["new_unique_text"])
         state["exact_duplicate_pages"] += int(not outcome["new_unique_text"])
         state["articles_with_unknown_rights"] += int(
@@ -317,6 +376,12 @@ def _run_page(store, settings, state, profile, fetcher=None,
                         urlsplit(target).hostname != urlsplit(url).hostname)
         state["links_queued_this_run"] += added
         state["cross_host_links_queued_this_run"] += external
+        _publish(
+            store, state, "research_article_archived", url=url,
+            event="article_archived", detail=(
+                ("unique" if outcome["new_unique_text"] else "duplicate")
+                + " · " + str(len(saved["curiosity"]))
+                + " source-derived questions"))
         return {
             "status": "archived_research_only", "url": url,
             "new_unique_text": outcome["new_unique_text"],
@@ -328,6 +393,8 @@ def _run_page(store, settings, state, profile, fetcher=None,
         state["errors"] += 1
         state["last_errors"] = (state["last_errors"] + [{
             "url": url, "error": str(exc)[:250]}])[-10:]
+        _publish(store, state, "source_failed", url=url,
+                 event="source_error", detail=type(exc).__name__)
         return {"status": "error", "url": url,
                 "error": type(exc).__name__ + ": " + str(exc)[:220]}
 
@@ -338,6 +405,8 @@ def cycle(store, settings, state, pages=3, train_steps=40,
         raise ValueError("pages per cycle must be 1..8")
     profile = get_profile(state["profile"])
     observations = store.get(_HISTORY + state["profile"], []) or []
+    _publish(store, state, "searching_research_sources",
+             event="search_check")
     if stop_requested(store, state["run_id"], state["profile"]):
         search = {"status": "skipped_stop_requested",
                   "queries_attempted": 0, "url_candidates": []}
@@ -358,6 +427,9 @@ def cycle(store, settings, state, pages=3, train_steps=40,
     state["search_status"] = search.get("status", "unknown")
     state["search_queries_this_run"] += search.get("queries_attempted", 0)
     state["search_results_queued_this_run"] += queued_search
+    _publish(store, state, "search_finished", event="search_result",
+             detail=state["search_status"] + " · " + str(queued_search)
+             + " new source URLs")
     outcomes = []
     for i in range(int(pages)):
         if stop_requested(store, state["run_id"], state["profile"]):
@@ -378,11 +450,32 @@ def cycle(store, settings, state, pages=3, train_steps=40,
             sleep_fn(max(2.0, float(settings.get("crawl_delay_seconds", 2))))
     observations = store.get(_HISTORY + state["profile"], []) or []
     state["research_review_leads"] = review_leads(observations)[:20]
+    base_steps = int(state["training_steps_this_run"])
+    base_tokens = int(state["training_byte_tokens_processed"])
+    state["current_training_steps_done"] = 0
+    state["current_training_steps_target"] = 0
+    state["current_training_loss"] = None
+
+    def neural_progress(step, target, loss):
+        # Exactly BATCH=8 windows * CONTEXT=48 UTF-8 byte token IDs
+        # per optimizer update in the existing byte-level GRU.
+        from .focus_training import BATCH, CONTEXT
+        state["current_training_steps_done"] = step
+        state["current_training_steps_target"] = target
+        state["current_training_loss"] = round(float(loss), 6)
+        state["training_steps_this_run"] = base_steps + step
+        state["training_byte_tokens_processed"] = (
+            base_tokens + step * BATCH * CONTEXT)
+        _publish(store, state, "training_neural_weights")
+
     if stop_requested(store, state["run_id"], state["profile"]):
         training = {"status": "skipped_stop_requested", "steps": 0,
                     "weights_updated": False}
     else:
-        training = train_if_eligible(store, state["profile"], steps=train_steps)
+        _publish(store, state, "checking_training_eligibility")
+        training = train_if_eligible(
+            store, state["profile"], steps=train_steps,
+            progress=neural_progress)
     state["training_status"] = training["status"]
     state["latest_training"] = {
         key: training.get(key) for key in (
@@ -392,7 +485,12 @@ def cycle(store, settings, state, pages=3, train_steps=40,
         ) if key in training}
     if training.get("status") == "trained":
         state["training_runs_with_new_weights"] += 1
-        state["training_steps_this_run"] += training["steps"]
+        state["training_steps_this_run"] = (
+            base_steps + int(training["steps"]))
+        state["training_byte_tokens_processed"] = (
+            base_tokens + int(training.get("training_window_bytes_seen", 0)))
+    _publish(store, state, "cycle_finished", event="cycle_finished",
+             detail=("research · training " + training["status"]))
     state["cycles_completed"] += 1
     state["updated_at_utc"] = _utc()
     state["pending_research_urls"] = len(state["_queue"])
@@ -540,7 +638,8 @@ def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
                 stop or stop_requested(store, state["run_id"], profile_name))
 
         state["status"] = "running"
-        store.put(_KEY + profile_name, _public_state(state))
+        _publish(store, state, "starting", event="worker_started",
+                 detail="Learning process started independently of Studio")
         print(json.dumps({
             "status": "running", "profile": profile_name,
             "run_id": state["run_id"],
@@ -575,7 +674,10 @@ def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
                     state["status"] = "idle_waiting_for_allowed_work"
                 else:
                     state["status"] = "running"
-                store.put(_KEY + profile_name, _public_state(state))
+                if state["status"] == "idle_waiting_for_allowed_work":
+                    _publish(store, state, "idle_waiting_for_allowed_work")
+                else:
+                    _publish(store, state, "waiting_for_next_cycle")
                 print(json.dumps(result, ensure_ascii=False), flush=True)
                 if not until_stopped and (
                         state["pages_attempted"] >= state["max_pages_this_run"]):
@@ -606,7 +708,8 @@ def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
                 max(0.0, monotonic_fn() - start) / 3600, 3)
             state["updated_at_utc"] = _utc()
             state["heartbeat_at_utc"] = _utc()
-            store.put(_KEY + profile_name, _public_state(state))
+            _publish(store, state, state["status"],
+                     event="worker_" + state["status"])
             for sig, prior in previous_signals.items():
                 signal.signal(sig, prior)
             print(json.dumps({

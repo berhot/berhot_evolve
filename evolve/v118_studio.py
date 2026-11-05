@@ -121,7 +121,7 @@ class LearningController:
                             elapsed * (target - done) / done, 1)
             return {
                 "status": "online", "time_utc": _utc(),
-                "studio_backend_version": "1.28.0",
+                "studio_backend_version": "1.30.0",
                 "studio_api_version": 4,
                 "supported_chat_modes": ["auto", "grounded", "sources", "char", "byte_bpe", "qa"],
                 "research_budget": budget,
@@ -184,7 +184,30 @@ class LearningController:
                     ) if focus_run.get("run_id") else False,
                     "worker_pid": focus_run.get("worker_pid"),
                     "run_id": focus_run.get("run_id"),
+                    "started_at_utc": focus_run.get("started_at_utc"),
+                    "finished_at_utc": focus_run.get("finished_at_utc"),
                     "heartbeat_at_utc": focus_run.get("heartbeat_at_utc"),
+                    "current_phase": focus_run.get("current_phase", "not_started"),
+                    "current_url": focus_run.get("current_url"),
+                    "recent_activity": focus_run.get("recent_activity", [])[-12:],
+                    "pages_read": focus_run.get("pages_read", 0),
+                    "html_bytes_read": focus_run.get("html_bytes_read", 0),
+                    "text_characters_extracted": focus_run.get(
+                        "text_characters_extracted", 0),
+                    "text_words_extracted": focus_run.get(
+                        "text_words_extracted", 0),
+                    "text_utf8_byte_tokens_extracted": focus_run.get(
+                        "text_utf8_byte_tokens_extracted", 0),
+                    "unique_archived_utf8_byte_tokens": focus_run.get(
+                        "unique_archived_utf8_byte_tokens", 0),
+                    "training_byte_tokens_processed": focus_run.get(
+                        "training_byte_tokens_processed", 0),
+                    "current_training_steps_done": focus_run.get(
+                        "current_training_steps_done", 0),
+                    "current_training_steps_target": focus_run.get(
+                        "current_training_steps_target", 0),
+                    "current_training_loss": focus_run.get(
+                        "current_training_loss"),
                     "until_stopped": bool(focus_run.get("until_stopped", False)),
                     "pages_attempted": focus_run.get("pages_attempted", 0),
                     "pages_archived": focus_run.get("pages_archived", 0),
@@ -563,7 +586,7 @@ class LearningController:
 
 def _handler(controller, token, origin):
     class StudioHandler(BaseHTTPRequestHandler):
-        server_version = "BERHOT-Studio/1.28"
+        server_version = "BERHOT-Studio/1.30"
         def _headers(self, code, content_type):
             self.send_response(code)
             self.send_header("Content-Type", content_type)
@@ -674,7 +697,7 @@ def serve(settings, port=8787, interval=3600):
             ) from exc
         raise
     print(f"BERHOT Learning Studio: {origin}", flush=True)
-    print("Backend 1.28.0 / API 4; focus agent can run until manually stopped.", flush=True)
+    print("Backend 1.30.0 / API 4; live focus telemetry; refresh never stops the independent worker.", flush=True)
     print("Local-only. Press Ctrl+C to stop; automatic training runs only while Studio remains open.", flush=True)
     try:
         server.serve_forever(poll_interval=0.25)

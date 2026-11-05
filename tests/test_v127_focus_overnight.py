@@ -92,12 +92,31 @@ class FocusDataTests(unittest.TestCase):
                 self.assertEqual(state["new_unique_pages"], 1)
                 self.assertEqual(state["exact_duplicate_pages"], 2)
                 self.assertEqual(state["training_steps_this_run"], 0)
+                self.assertEqual(state["training_byte_tokens_processed"], 0)
+                self.assertEqual(state["pages_read"], 3)
+                self.assertEqual(
+                    state["html_bytes_read"], 3 * len(html.encode("utf-8")))
+                self.assertGreater(state["text_utf8_byte_tokens_extracted"], 0)
+                self.assertGreater(state["text_words_extracted"], 0)
+                self.assertGreater(state["text_characters_extracted"], 0)
+                self.assertGreater(state["unique_archived_utf8_byte_tokens"], 0)
+                self.assertLess(
+                    state["unique_archived_utf8_byte_tokens"],
+                    state["text_utf8_byte_tokens_extracted"])
+                self.assertGreater(len(state["recent_activity"]), 0)
+                self.assertTrue(state["started_at_utc"])
                 self.assertEqual(state["training_status"],
                                  "skipped_no_eligible_training_corpus")
                 self.assertGreater(state[
                     "candidate_questions_created_this_run"], 0)
                 summary = report(store)
                 self.assertEqual(summary["last_run"]["pages_attempted"], 3)
+                self.assertEqual(summary["last_run"]["pages_read"], 3)
+                self.assertEqual(
+                    summary["last_run"]["text_utf8_byte_tokens_extracted"],
+                    state["text_utf8_byte_tokens_extracted"])
+                self.assertEqual(
+                    store.get("focus_run_saudi-history-ar")["pages_read"], 3)
                 self.assertEqual(summary[
                     "rights_eligible_arabic_training"]["rights_eligible_arabic_pages"], 0)
                 self.assertGreater(summary[
@@ -178,16 +197,27 @@ class FocusTrainTests(unittest.TestCase):
                     self.assertEqual(result["status"], "review_recorded")
                 pre = readiness(store, "saudi-history-ar")
                 self.assertEqual(pre["status"], "ready", pre)
-                result = train_if_eligible(store, "saudi-history-ar",
-                                           steps=3, seed=17)
+                actual_steps_seen = []
+                result = train_if_eligible(
+                    store, "saudi-history-ar", steps=3, seed=17,
+                    progress=lambda n, total, loss: actual_steps_seen.append(
+                        (n, total, loss)))
+                self.assertEqual([n for n, _t, _loss in actual_steps_seen],
+                                 [1, 2, 3])
+                self.assertTrue(all(target == 3 for _, target, _ in actual_steps_seen))
+                self.assertTrue(all(loss > 0 for _, _, loss in actual_steps_seen))
                 self.assertEqual(result["status"], "trained", result)
                 self.assertEqual(result["steps"], 3)
                 self.assertGreater(result["trainable_parameters"], 1000)
                 self.assertTrue(result["sha256"])
                 self.assertFalse(result["selected_on_test"])
                 self.assertFalse(result["understands_saudi_history"])
-                repeat = train_if_eligible(store, "saudi-history-ar",
-                                           steps=3, seed=17)
+                unexpected_progress = []
+                repeat = train_if_eligible(
+                    store, "saudi-history-ar", steps=3, seed=17,
+                    progress=lambda n, target, loss:
+                        unexpected_progress.append(n))
+                self.assertEqual(unexpected_progress, [])
                 self.assertEqual(repeat["status"], "skipped_unchanged_approved_data")
                 self.assertEqual(repeat["steps"], 0)
             finally:

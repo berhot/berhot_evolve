@@ -22,6 +22,14 @@ header{display:flex;justify-content:space-between;align-items:center;padding-bot
 .focus-tile .metric-number{font-size:25px}
 .focus-tag{color:var(--cyan);font-weight:750}
 .focus-state{font-weight:700}
+.focus-livebar{margin:16px 0 4px;display:flex;gap:20px;align-items:center;flex-wrap:wrap;padding:16px;background:#102635;border:1px solid #386073;border-radius:12px}
+.focus-elapsed{font-size:31px;font-weight:800;letter-spacing:1px;font-variant-numeric:tabular-nums;color:var(--cyan)}
+.focus-livebar .metric-label{margin-bottom:3px}
+.focus-livebar .small{max-width:420px}
+.focus-activity{display:grid;gap:7px;margin:12px 0;max-height:205px;overflow:auto}
+.focus-event{border-left:2px solid #456b78;padding:5px 10px;color:#c0d2dc;font-size:12px}
+.focus-source{font-size:12px;word-break:break-all;overflow-wrap:anywhere;max-width:60%}
+
 @media(max-width:850px){.focus-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:500px){.focus-grid{grid-template-columns:1fr 1fr}.focus-tile .metric-number{font-size:20px}}
 
@@ -56,12 +64,27 @@ footer{color:var(--muted);font-size:11px;text-align:center;margin-top:24px}
 <section class="panel" aria-label="Saudi history focus learning agent">
 <div class="focus-head"><div><div class="eyebrow">Lifelong focus / Arabic · Saudi history</div><h2>Focus Agent · Learn until I stop</h2></div><span id="focus-state" class="tag focus-state">NOT STARTED</span></div>
 <p class="small" style="margin-top:8px">Open-ended local research supervisor: no fixed page or search stop counts. Keyless headless browser discovery, source-specific pacing, robots/access rules and zero automatic training rights. It may remain idle when no permitted work is available.</p>
+<div class="focus-livebar" aria-label="Persistent agent session timer">
+  <div><div class="metric-label">Session elapsed · keeps counting after refresh</div><div class="focus-elapsed mono" id="focus-elapsed">00:00:00</div></div>
+  <div><div class="metric-label">Started at</div><strong id="focus-started">Not started</strong><div class="small muted" id="focus-run-id">No session yet</div></div>
+  <div><div class="metric-label">Current work</div><strong id="focus-phase">Not running</strong><div class="small muted" id="focus-live-status">Waiting for the agent to start</div></div>
+</div>
 <div class="focus-grid">
 <div class="focus-tile"><div class="metric-label">Evidence ranker · model parameters</div><div class="metric-number" id="focus-ranker-size">—</div><div class="metric-sub" id="focus-ranker-trained">Checkpoint status</div></div>
 <div class="focus-tile"><div class="metric-label">Arabic byte model · architecture parameters</div><div class="metric-number" id="focus-params">—</div><div class="metric-sub" id="focus-trained">Not trained yet</div></div>
 <div class="focus-tile"><div class="metric-label">New unique Arabic pages · this run</div><div class="metric-number" id="focus-pages">0</div><div class="metric-sub" id="focus-archive">0 archived • 0 duplicates</div></div>
 <div class="focus-tile"><div class="metric-label">Neural training steps · this run</div><div class="metric-number" id="focus-steps">0</div><div class="metric-sub" id="focus-questions">0 research questions (unverified)</div></div>
 </div>
+<div class="focus-grid" aria-label="Live factual reading and training counters">
+  <div class="focus-tile"><div class="metric-label">Pages successfully read</div><div class="metric-number" id="focus-read-pages">0</div><div class="metric-sub" id="focus-html-bytes">0 raw HTML bytes received</div></div>
+  <div class="focus-tile"><div class="metric-label">UTF-8 byte tokens extracted</div><div class="metric-number" id="focus-extracted-tokens">0</div><div class="metric-sub" id="focus-extracted-text">0 chars · 0 words · not trained yet</div></div>
+  <div class="focus-tile"><div class="metric-label">Unique archived byte tokens</div><div class="metric-number" id="focus-unique-tokens">0</div><div class="metric-sub">Deduplicated research text, not neural learning</div></div>
+  <div class="focus-tile"><div class="metric-label">Byte tokens processed in training</div><div class="metric-number" id="focus-trained-tokens">0</div><div class="metric-sub" id="focus-train-progress">0 / 0 optimizer steps · no updates</div></div>
+</div>
+<div class="mline"><span class="muted">Currently reading / processing</span><strong class="focus-source" id="focus-current-url">—</strong></div>
+<div class="mline"><span class="muted">Current training batch loss</span><strong id="focus-train-loss">—</strong></div>
+<div class="metric-label" style="margin-top:14px">Recent worker activity · refreshed from persisted progress</div>
+<div id="focus-recent-activity" class="focus-activity"><div class="empty">No research activity yet.</div></div>
 <div class="mline"><span class="muted">Current focus</span><strong>تاريخ المملكة العربية السعودية</strong></div>
 <div class="mline"><span class="muted">Research progress / UTC daily cap</span><strong id="focus-daily">—</strong></div>
 <div class="mline"><span class="muted">Current training status</span><strong id="focus-training-status">Not checked</strong></div>
@@ -74,7 +97,7 @@ footer{color:var(--muted);font-size:11px;text-align:center;margin-top:24px}
 <button class="btn danger" id="focus-stop" disabled>Stop learning</button>
 </div>
 <div class="notice" id="focus-notice"></div>
-<p class="small">No API key or visible browser needed; optional Playwright + Chromium must be installed. Google/Bing automated results are skipped while disallowed by their policies. No CAPTCHA bypass. The Mac must remain awake. Model parameters stay fixed as articles accumulate.</p>
+<p class="small">Reloading or closing this browser never stops the separate research worker. Start time, counters and activity come from saved worker state. Read/extracted tokens are exact UTF-8 bytes for this experimental byte model—not JSM/BPE tokenization and not proof of learning. No API key required; web access and rights rules still apply. Keep the Mac awake.</p>
 </section>
 <div class="layout">
 <div class="stack">
@@ -125,6 +148,32 @@ const restartMessage="Old Studio backend detected. Stop its terminal server with
 function compatible(s){return s?.studio_api_version===STUDIO_API_VERSION&&Array.isArray(s.supported_chat_modes)&&s.supported_chat_modes.includes("auto")&&s.supported_chat_modes.includes("grounded");}
 const timeFmt=v=>{if(v==null||!Number.isFinite(Number(v)))return "—";v=Math.max(0,Math.round(Number(v)));return v>=3600?Math.floor(v/3600)+"h "+Math.floor(v%3600/60)+"m":v>=60?Math.floor(v/60)+"m "+(v%60)+"s":v+"s"};
 const dateFmt=s=>s?new Date(s).toLocaleString():"—";
+function focusTimer(){
+ const f=latest?.focus_agent||{};
+ if(!f.started_at_utc){text("focus-elapsed","00:00:00");return}
+ const started=Date.parse(f.started_at_utc);
+ const finished=f.process_running?Date.now():Date.parse(f.finished_at_utc||f.heartbeat_at_utc||f.started_at_utc);
+ if(!Number.isFinite(started)||!Number.isFinite(finished)){text("focus-elapsed","—");return}
+ let sec=Math.floor(Math.max(0,finished-started)/1000);
+ const h=String(Math.floor(sec/3600)).padStart(2,"0");
+ const m=String(Math.floor(sec%3600/60)).padStart(2,"0");
+ const ss=String(sec%60).padStart(2,"0");
+ text("focus-elapsed",h+":"+m+":"+ss);
+}
+function renderFocusActivity(events){
+ const area=$("focus-recent-activity");area.replaceChildren();
+ if(!events||events.length===0){
+  const row=document.createElement("div");row.className="empty";
+  row.textContent="No worker events recorded yet.";area.append(row);return;
+ }
+ for(const x of [...events].reverse().slice(0,10)){
+  const row=document.createElement("div");row.className="focus-event";
+  row.textContent=dateFmt(x.at_utc)+" · "+String(x.kind||"activity").replaceAll("_"," ") +
+   (x.detail?" · "+x.detail:"")+(x.url?" · "+x.url:"");
+  area.append(row);
+ }
+}
+
 async function api(path,body){
  const options={cache:"no-store"};
  if(body!==undefined){options.method="POST";options.headers={"Content-Type":"application/json","X-Evolve-Key":token};options.body=JSON.stringify(body)}
@@ -174,6 +223,25 @@ async function refresh(){
    "Accepted Arabic checkpoint · "+(m.saudi_history_arabic.accepted_training_steps_recorded??0)+" steps":
    "Architecture only · no accepted Arabic checkpoint");
  text("focus-state",(f.status||"NOT STARTED").toUpperCase().replaceAll("_"," "));
+ text("focus-started",f.started_at_utc?dateFmt(f.started_at_utc):"Not started");
+ text("focus-run-id",f.run_id?"Run "+f.run_id:"No session yet");
+ text("focus-phase",(f.current_phase||"not_started").replaceAll("_"," "));
+ text("focus-live-status",f.process_running?"Worker active · independent of browser refresh":
+   f.started_at_utc?"Worker stopped or interrupted · saved counters retained":
+   "Click Start continuous learning to begin");
+ text("focus-read-pages",Number(f.pages_read||0).toLocaleString());
+ text("focus-html-bytes",Number(f.html_bytes_read||0).toLocaleString()+" raw HTML bytes read");
+ text("focus-extracted-tokens",Number(f.text_utf8_byte_tokens_extracted||0).toLocaleString());
+ text("focus-extracted-text",Number(f.text_characters_extracted||0).toLocaleString()+
+   " characters · "+Number(f.text_words_extracted||0).toLocaleString()+" words · before training");
+ text("focus-unique-tokens",Number(f.unique_archived_utf8_byte_tokens||0).toLocaleString());
+ text("focus-trained-tokens",Number(f.training_byte_tokens_processed||0).toLocaleString());
+ text("focus-train-progress",(f.current_training_steps_done||0)+" / "+(f.current_training_steps_target||0)+
+   " current optimizer steps · "+(f.training_steps_this_run||0)+" this run");
+ text("focus-train-loss",f.current_training_loss??"—");
+ text("focus-current-url",f.current_url||"—");
+ renderFocusActivity(f.recent_activity);
+ focusTimer();
  $("focus-state").className="tag "+(f.process_running?"good":"");
  text("focus-pages",f.unique_pages_added||0);
  text("focus-archive",(f.pages_archived||0)+" archived · "+(f.exact_duplicates||0)+" duplicates");
@@ -282,6 +350,7 @@ async function refreshAndCheck(){
 }
 $("send").onclick=send;$("question").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();send()}};
 refreshAndCheck();refreshPlan();setInterval(refreshAndCheck,2500);
+setInterval(focusTimer,1000); // Display only; worker runs independently of page
 </script>
 </body>
 </html>
