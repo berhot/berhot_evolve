@@ -404,7 +404,32 @@ class LearningController:
             def model_summary(record):
                 if not record:
                     return None
+                # Verify the saved checkpoint bytes, not merely a persisted
+                # hash string. Don't open any arbitrary path from saved data.
+                root = (store.root / "models" / "focus" / profile).resolve()
+                present = False
+                integrity = False
+                file_path = record.get("checkpoint")
+                if isinstance(file_path, str) and file_path:
+                    try:
+                        candidate = Path(file_path).resolve()
+                        if (candidate.is_relative_to(root) and
+                                candidate.is_file() and
+                                candidate.stat().st_size <= 32 * 1024 * 1024):
+                            present = True
+                            digest = hashlib.sha256()
+                            with candidate.open("rb") as stream:
+                                for chunk in iter(
+                                        lambda: stream.read(256 * 1024), b""):
+                                    digest.update(chunk)
+                            integrity = bool(
+                                record.get("sha256") and
+                                digest.hexdigest() == record["sha256"])
+                    except (OSError, ValueError):
+                        pass
                 return {
+                    "checkpoint_file_present": present,
+                    "checkpoint_sha256_verified": integrity,
                     "status": record.get("status", "not_recorded"),
                     "accepted": bool(record.get("accepted")),
                     "steps": record.get("steps", 0),
