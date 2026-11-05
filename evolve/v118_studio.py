@@ -28,6 +28,8 @@ from .v119_curiosity import (smart_lookup, research as research_topic,
 from .v120_grounded import (grounded_answer, train_ranker,
                             readiness as ranker_readiness)
 from .v121_autonomy import cycle as autonomous_cycle
+from .focus_control import (PROFILE as FOCUS_PROFILE, model_size_snapshot,
+                            worker_running, request_stop, start_detached)
 
 HOST = "127.0.0.1"
 MAX_BODY = 16384
@@ -54,6 +56,7 @@ class LearningController:
         self.last_check_at = None
         self.stop_event = Event()
         self.started_at = time.monotonic()
+        self.focus_launch_at = 0.0
         self.monitor = Thread(target=self._monitor_loop, daemon=True)
         self.monitor.start()
 
@@ -88,6 +91,11 @@ class LearningController:
             v117 = store.get("v117_latest")
             qa_model = store.get("v118_qa_latest")
             grounded_ranker = store.get("v120_ranker_latest")
+            focus_run = store.get("focus_run_" + FOCUS_PROFILE) or {}
+            focus_live = worker_running(store, FOCUS_PROFILE)
+            focus_observations = store.get("focus_observations_" + FOCUS_PROFILE, []) or []
+            focus_model = store.get("focus_train_latest_" + FOCUS_PROFILE) or {}
+            size = model_size_snapshot(store)
             previous_autonomy = store.get("v121_last_cycle") or {}
             qa_plan = qa_readiness(store) if (qa_examples or auto_lessons) else {
                 "status": "needs_source_grounded_examples"}
@@ -112,8 +120,8 @@ class LearningController:
                             elapsed * (target - done) / done, 1)
             return {
                 "status": "online", "time_utc": _utc(),
-                "studio_backend_version": "1.21.0",
-                "studio_api_version": 3,
+                "studio_backend_version": "1.28.0",
+                "studio_api_version": 4,
                 "supported_chat_modes": ["auto", "grounded", "sources", "char", "byte_bpe", "qa"],
                 "research_budget": budget,
                 "server_uptime_seconds": int(time.monotonic() - self.started_at),
@@ -159,6 +167,41 @@ class LearningController:
                     "steps": qa_model["actual_training_steps"],
                     "val_answer_loss": qa_model["validation_answer_loss_after"]
                 } if qa_model else None,
+                "model_size": size,
+                "focus_agent": {
+                    "profile": FOCUS_PROFILE,
+                    "focus": "تاريخ المملكة العربية السعودية",
+                    "status": (
+                        focus_run.get("status") if focus_live
+                        else "stopped_or_interrupted" if focus_run.get(
+                            "status") in ("running", "idle_waiting_for_allowed_work")
+                        else focus_run.get("status", "not_started")),
+                    "process_running": focus_live,
+                    "stop_requested": bool(
+                        store.get("focus_stop_request_" + FOCUS_PROFILE, {}).get(
+                            "run_id") == focus_run.get("run_id")
+                    ) if focus_run.get("run_id") else False,
+                    "worker_pid": focus_run.get("worker_pid"),
+                    "run_id": focus_run.get("run_id"),
+                    "heartbeat_at_utc": focus_run.get("heartbeat_at_utc"),
+                    "until_stopped": bool(focus_run.get("until_stopped", False)),
+                    "pages_attempted": focus_run.get("pages_attempted", 0),
+                    "pages_archived": focus_run.get("pages_archived", 0),
+                    "unique_pages_added": focus_run.get("new_unique_pages", 0),
+                    "exact_duplicates": focus_run.get("exact_duplicate_pages", 0),
+                    "pages_today": focus_run.get("pages_attempted_today", 0),
+                    "max_pages_per_day": focus_run.get("max_pages_per_utc_day", 24),
+                    "candidate_questions": focus_run.get(
+                        "candidate_questions_created_this_run", 0),
+                    "training_steps_this_run": focus_run.get(
+                        "training_steps_this_run", 0),
+                    "accepted_training_steps": focus_model.get("steps_total", 0),
+                    "training_status": focus_run.get("training_status", "not_started"),
+                    "observed_research_articles": len(focus_observations),
+                    "research_only_is_not_neural_training": True,
+                    "training_needs_manual_source_rights_review": True,
+                    "last_errors": focus_run.get("last_errors", [])[-3:],
+                },
                 "job": job,
                 "job_history": history[-12:][::-1],
                 "auto": {
@@ -176,6 +219,29 @@ class LearningController:
                     "note": "Only while this local server runs. Operator-enabled automated cycles choose source-observed research words; max 6 public HTTPS requests per daily cycle, within shared budget and robots policy; rights are never auto-approved.",
                 },
             }
+        finally:
+            store.close()
+
+    def start_focus(self):
+        with self.lock:
+            # UI double-clicks cannot spawn unlimited detached workers
+            # while an earlier one is still acquiring its OS lock.
+            if time.monotonic() - self.focus_launch_at < 10.0:
+                return {"status": "launching_or_running"}
+            store = self._store()
+            try:
+                result = start_detached(
+                    store, self.settings["_project_root"], FOCUS_PROFILE)
+                if result.get("status") == "launched":
+                    self.focus_launch_at = time.monotonic()
+                return result
+            finally:
+                store.close()
+
+    def stop_focus(self):
+        store = self._store()
+        try:
+            return request_stop(store, FOCUS_PROFILE)
         finally:
             store.close()
 
@@ -480,7 +546,7 @@ class LearningController:
 
 def _handler(controller, token, origin):
     class StudioHandler(BaseHTTPRequestHandler):
-        server_version = "BERHOT-Studio/1.21"
+        server_version = "BERHOT-Studio/1.28"
         def _headers(self, code, content_type):
             self.send_response(code)
             self.send_header("Content-Type", content_type)
@@ -550,6 +616,10 @@ def _handler(controller, token, origin):
                                                steps=body.get("steps"))
                 elif self.path == "/api/auto":
                     result = controller.set_auto(body.get("enabled"))
+                elif self.path == "/api/focus/start":
+                    result = controller.start_focus()
+                elif self.path == "/api/focus/stop":
+                    result = controller.stop_focus()
                 elif self.path == "/api/study":
                     result = controller.submit("self-study", steps=body.get("steps", 60))
                 else:
@@ -587,7 +657,7 @@ def serve(settings, port=8787, interval=3600):
             ) from exc
         raise
     print(f"BERHOT Learning Studio: {origin}", flush=True)
-    print("Backend 1.21.0 / API 3; chat modes: auto, grounded, sources, char, byte_bpe, qa.", flush=True)
+    print("Backend 1.28.0 / API 4; focus agent can run until manually stopped.", flush=True)
     print("Local-only. Press Ctrl+C to stop; automatic training runs only while Studio remains open.", flush=True)
     try:
         server.serve_forever(poll_interval=0.25)
