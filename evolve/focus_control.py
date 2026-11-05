@@ -122,7 +122,7 @@ def start_detached(store, project_root, profile=PROFILE):
            "focus-overnight", "--network", "--profile", profile,
            "--until-stopped", "--no-fixed-quotas",
            "--browser-search-provider", "duckduckgo",
-           "--pages-per-cycle", "3", "--interval-minutes", "15",
+           "--pages-per-cycle", "20", "--interval-minutes", "2",
            "--train-steps", "40"]
     if sys.platform == "darwin" and shutil.which("caffeinate"):
         cmd = ["caffeinate", "-i", *cmd]
@@ -139,7 +139,8 @@ def start_detached(store, project_root, profile=PROFILE):
         "log_path": str(logfile),
         "note": (
             "Separate local process. It remains active after this browser "
-            "closes while the Mac stays awake. Daily crawl limits still apply."
+            "closes while the Mac stays awake. Publisher pacing, robots "
+            "and rights checks still apply."
         ),
     }
 
