@@ -2033,3 +2033,82 @@ More browsing does not make the neural model grow in parameters.
 This is a practical supervised/weakly self-directed research
 prototype, not an autonomous self-improving Arabic general-purpose
 foundation model or an independently trustworthy historian.
+
+
+## BERHOT EVOLVE v1.29 — No API key, invisible browser, no fixed research stop count
+
+**This section supersedes the v1.28 Brave Search API instructions.**
+The learner's focus is Saudi history in Arabic; the discoveries are NOT limited
+to fixed publisher websites. The Studio **Start continuous learning** button
+starts a separate on-device agent using:
+
+- A headless (invisible) Chromium browser, installed through Playwright.
+- A search box that submits source-derived Arabic research questions to
+  permitted search pages. The default provider is DuckDuckGo's ordinary
+  root search page; it needs **no API key and no search subscription**.
+- Google and Bing provider profiles are present, but **not automatically
+  queried**, because their current robots/policies disallow unattended
+  automated search results. The worker will never fake a human identity,
+  solve a CAPTCHA, use stealth plugins or evade a blocking website.
+- Independent publisher article discovery from relevant page links, even if
+  search is temporarily unavailable. Every article is re-fetched through
+  the established robots/TLS/public-DNS/response-size restrictions. Search
+  snippets are only URLs to investigate, never trusted training data.
+- Source-derived questions and historical date discrepancy leads that
+  require source-level and human factual review, not auto-truth claims.
+- The `--no-fixed-quotas` option means the continuous worker is not stopped
+  by arbitrary counts like "24 pages/day" or "6 searches/day". Respectful
+  intervals, host pacing, retry/backoff, server access rules and machine
+  capacity still constrain the actual request rate. The process can idle
+  when no lawful new work is available, without declaring itself done.
+
+### Install browser once on your Mac
+
+```bash
+cd ~/Desktop/berhot_evolve
+git switch main
+git fetch origin
+git merge --ff-only origin/main
+python3 -m pip install -e '.[train,browser]'
+python3 -m playwright install chromium
+python3 -m evolve studio --port 8787
+```
+
+Open `http://127.0.0.1:8787/` and click
+**Start continuous learning**. Studio shows the active state, real PyTorch
+parameter/checkpoint statistics, actual training steps, sources, deduplication,
+search queries, research questions and human-review leads.
+
+Run it without the dashboard (do NOT start two workers):
+
+```bash
+mkdir -p storage/logs
+nohup caffeinate -i python3 -u -m evolve focus-overnight \
+  --network --until-stopped --no-fixed-quotas \
+  --browser-search-provider duckduckgo \
+  --interval-minutes 15 --pages-per-cycle 3 --train-steps 40 \
+  > storage/logs/saudi-history-continuous.log 2>&1 &
+```
+
+To stop gracefully:
+
+```bash
+python3 -m evolve focus-stop --profile saudi-history-ar
+```
+
+This is a Mac **local worker**, not a cloud job. Keep the computer charging,
+lid open, and allow its process to run. Mac shutdowns and crashes can interrupt
+it; the saved frontier helps resume progress on the next start.
+
+Google's search robots/policy and Bing's search robots currently disallow the
+unattended search routes; Google/Bing are NOT a permitted automated fallback
+unless the providers explicitly change their rules or authorize access.
+DuckDuckGo root search can likewise become unavailable if policy changes,
+the engine issues a challenge or request is rejected. No attempt is made to
+circumvent such controls.
+
+Browser result pages are only used to find source URLs. Unreviewed articles
+stay research-only, and training remains prohibited until each article's rights
+and the model's publisher-separated validation requirements are satisfied.
+No automatic historical truth certification or model-parameter growth is
+claimed. A social media discovery subsystem is not included in v1.29.
