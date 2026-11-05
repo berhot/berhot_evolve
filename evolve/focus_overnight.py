@@ -19,6 +19,7 @@ from .focus_control import acquire_lock, release_lock, stop_requested
 from .focus_data import get_profile, topic_relevance, arabic_curiosity, review_leads
 from .focus_discovery import _candidate_link, relevant_links, run_one_search
 from .focus_training import train_if_eligible, readiness as training_readiness
+from .focus_sitemaps import discover_publisher_sitemaps
 from .open_corpus import archive_page
 from .v119_curiosity import budget_status
 from .web_discovery import (
@@ -296,6 +297,7 @@ def init_state(store, profile_name, extra_urls=None, max_pages=24):
         "last_cycle_pacing_waits": 0,
         "last_cycle_idle_reason": None,
         "last_archive_recovery": None,
+        "last_sitemap_discovery": None,
         "new_unique_pages": 0, "exact_duplicate_pages": 0,
         "skipped_off_topic_or_non_arabic": 0,
         "errors": 0,
@@ -639,7 +641,7 @@ def _run_page(store, settings, state, profile, fetcher=None,
 
 def cycle(store, settings, state, pages=3, train_steps=40,
           fetcher=None, sleep_fn=time.sleep, search_fn=None,
-          time_fn=time.time):
+          time_fn=time.time, sitemap_fn=None):
     if not 1 <= int(pages) <= 50:
         raise ValueError("pages per cycle must be 1..50")
     profile = get_profile(state["profile"])
@@ -696,6 +698,35 @@ def cycle(store, settings, state, pages=3, train_steps=40,
                          " cached sources scanned · " +
                          str(recovery["new_candidate_urls"]) +
                          " new candidate URLs · 0 network requests"))
+    if (state.get("no_fixed_quotas") and not state["_queue"] and
+            (fetcher is None or sitemap_fn is not None) and
+            not stop_requested(store, state["run_id"], state["profile"])):
+        # If both browser search and local archive links yield nothing, try
+        # one due publisher's own public sitemap. The sitemap reader checks
+        # public DNS, robots, same-origin HTTPS, TLS and redirects. This is
+        # link discovery only; actual page fetches still use fetch_page.
+        sitemap = discover_publisher_sitemaps(
+            store, profile, observations, sitemap_fn=sitemap_fn)
+        queued_sitemap = 0
+        for candidate in sitemap.get("url_candidates", []):
+            queued_sitemap += int(_enqueue(state, candidate))
+        state["last_sitemap_discovery"] = {
+            key: sitemap.get(key) for key in (
+                "status", "host", "network_requests",
+                "sitemap_documents_checked", "candidate_urls_found",
+                "retry_after_seconds",
+            )
+        }
+        state["last_sitemap_discovery"]["new_urls_queued"] = queued_sitemap
+        state["links_queued_this_run"] += queued_sitemap
+        _publish(
+            store, state, "publisher_sitemap_discovery",
+            event="publisher_sitemap_result",
+            detail=(str(sitemap.get("host") or "all publishers paced") +
+                    " · " + str(sitemap.get("status")) + " · " +
+                    str(queued_sitemap) + " new candidate URLs · " +
+                    str(sitemap.get("network_requests", 0)) +
+                    " discovery requests"))
     outcomes = []
     pages_at_cycle_start = int(state["pages_attempted"])
     pacing_waits = 0
@@ -903,6 +934,7 @@ def cycle(store, settings, state, pages=3, train_steps=40,
         "pages_target_this_cycle": int(pages),
         "idle_reason": state["last_cycle_idle_reason"],
         "archive_link_recovery": recovery,
+        "publisher_sitemap_discovery": state.get("last_sitemap_discovery"),
         "publisher_pacing_waits_this_cycle": pacing_waits,
         "pages_archived_total": state["pages_archived"],
         "new_unique_pages_total": state["new_unique_pages"],
