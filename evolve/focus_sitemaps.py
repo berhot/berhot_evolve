@@ -99,7 +99,7 @@ def _robots_denies_wildcard(lines, target_path):
 
 
 _LOCALES = frozenset(("ar", "en", "fr", "de", "ru", "ch", "zh", "es"))
-_MAX_SITEMAPS_PER_PROBE = 8
+_MAX_SITEMAPS_PER_PROBE = 4
 
 
 def _locale_relevant(url, language="ar"):
@@ -110,7 +110,8 @@ def _locale_relevant(url, language="ar"):
 
 def _fetch_publisher_sitemaps(host, *, language="ar",
                               document_reader=None,
-                              dns_checker=check_public_dns):
+                              dns_checker=check_public_dns,
+                              sleep_fn=time.sleep, time_fn=time.monotonic):
     """Read robots.txt and bounded linked XML sitemap documents.
 
     A sitemapindex is NOT a list of articles. Follow its child XML before
@@ -120,10 +121,20 @@ def _fetch_publisher_sitemaps(host, *, language="ar",
     dns_checker(host)
     opener = make_fetcher() if document_reader is None else None
     requests = 0
+    last_requested_at = None
+    request_gap_seconds = 20
 
     def read(url, cap):
-        nonlocal requests
+        nonlocal requests, last_requested_at
+        # The normal article worker has a 20-second publisher gap. Sitemap
+        # discovery must honor the same spacing, even within one probe.
+        # The injected reader uses no network and no delays in unit tests.
+        if document_reader is None and last_requested_at is not None:
+            elapsed = time_fn() - last_requested_at
+            if elapsed < request_gap_seconds:
+                sleep_fn(request_gap_seconds - max(0, elapsed))
         requests += 1
+        last_requested_at = time_fn()
         if document_reader is not None:
             return document_reader(url, cap)
         with opener.open(urllib.request.Request(
