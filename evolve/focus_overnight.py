@@ -15,6 +15,7 @@ import time
 from .focus_control import acquire_lock, release_lock, stop_requested
 
 from .focus_data import get_profile, topic_relevance, arabic_curiosity, review_leads
+from .focus_discovery import _candidate_link, relevant_links, run_one_search
 from .focus_training import train_if_eligible, readiness as training_readiness
 from .open_corpus import archive_page
 from .v119_curiosity import budget_status
@@ -40,11 +41,13 @@ def _public_state(state):
 
 
 def _enqueue(state, url, depth=0):
-    try:
-        url = canonical_url(url)
-    except (ValueError, AttributeError):
+    # The topic, not a fixed website list, determines exploration.
+    # All fetched pages remain subject to the strict existing network/rights
+    # checks. Keep the pending frontier finite in memory/on disk.
+    url = _candidate_link(url)
+    if not url or not 0 <= int(depth) <= 3:
         return False
-    if urlsplit(url).hostname not in state["allowed_hosts"]:
+    if len(state["_queue"]) >= 500:
         return False
     if url in state["_seen"] or any(item["url"] == url
                                    for item in state["_queue"]):
@@ -58,16 +61,18 @@ def plan(profile_name="saudi-history-ar", extra_urls=None):
     seeds = list(profile["seeds"])
     for url in extra_urls or []:
         canonical = canonical_url(url)
-        if urlsplit(canonical).hostname not in profile["allowed_hosts"]:
-            raise ValueError(
-                "Extra seed host requires a separately reviewed profile; "
-                "overnight mode cannot crawl arbitrary new domains")
+        if not _candidate_link(canonical):
+            raise ValueError("Extra seed is not an eligible public HTTPS article URL")
         seeds.append(canonical)
     return {
         "status": "ready_for_user_initiated_overnight_run",
         "profile": profile_name, "focus": profile["name_ar"],
         "language": profile["language"],
-        "allowed_hosts": list(profile["allowed_hosts"]),
+        "initial_seed_hosts": list(profile["initial_seed_hosts"]),
+        "no_permanent_website_allowlist": True,
+        "discovery": "cross_publisher_topical_links_and_optional_brave_search",
+        "search_provider": "Brave Web Search API only when BRAVE_SEARCH_API_KEY supplied",
+        "search_api_key_configured": bool(os.environ.get("BRAVE_SEARCH_API_KEY")),
         "seed_urls": list(dict.fromkeys(seeds)),
         "no_training_rights_inferred": True,
         "research_only_until_per_article_rights_review": True,
@@ -87,7 +92,8 @@ def init_state(store, profile_name, extra_urls=None, max_pages=24):
     state = {
         "version": "focus-overnight-1.0",
         "profile": profile_name, "focus": profile["name_ar"],
-        "allowed_hosts": list(profile["allowed_hosts"]),
+        "initial_seed_hosts": list(profile["initial_seed_hosts"]),
+        "no_permanent_website_allowlist": True,
         "run_id": now.replace(":", "").replace("-", ""),
         "started_at_utc": now,
         "updated_at_utc": now,
@@ -110,6 +116,13 @@ def init_state(store, profile_name, extra_urls=None, max_pages=24):
         "candidate_questions_created_this_run": 0,
         "hours_elapsed": 0.0,
         "cycles_completed": 0,
+        "links_queued_this_run": 0,
+        "cross_host_links_queued_this_run": 0,
+        "search_queries_this_run": 0,
+        "search_results_queued_this_run": 0,
+        "search_status": "not_checked",
+        "distinct_research_hosts": 0,
+        "pending_research_urls": 0,
         "training_runs_with_new_weights": 0,
         "training_steps_this_run": 0,
         "training_status": "not_checked",
@@ -121,10 +134,22 @@ def init_state(store, profile_name, extra_urls=None, max_pages=24):
         "research_records_saved": 0,
         "previous_run_id": previous.get("run_id"),
         "_queue": [], "_seen": set(),
-        "_seeded": base["seed_urls"],
+        "_seeded": base["seed_urls"], "_host_day_used": {},
         "_last_errors": [],
     }
-    # Read-only separation from other EVOLVE frontier and learning queues.
+    # Restore discovered links across process restarts. A new run does not
+    # wipe out the curiosity frontier or re-request already visited URLs.
+    saved_frontier = store.get("focus_frontier_" + profile_name) or {}
+    state["_seen"] = set(saved_frontier.get("seen", [])[-6000:])
+    state["_queue"] = [
+        item for item in saved_frontier.get("pending", [])[:500]
+        if isinstance(item, dict) and _candidate_link(item.get("url"))
+        and 0 <= item.get("depth", -1) <= 3
+    ]
+    if saved_frontier.get("day") == state["pages_day_utc"]:
+        state["_host_day_used"] = dict(saved_frontier.get("host_counts", {}))
+        state["pages_attempted_today"] = int(
+            saved_frontier.get("pages_attempted_today", 0))
     for url in base["seed_urls"]:
         _enqueue(state, url)
     store.put(_KEY + profile_name, _public_state(state))
@@ -156,10 +181,14 @@ def _rollover_if_new_utc_day(state):
         return False
     state["pages_day_utc"] = today
     state["pages_attempted_today"] = 0
-    state["_seen"] = set()
-    state["_queue"] = []
-    for seed in state["_seeded"]:
-        _enqueue(state, seed)
+    state["_host_day_used"] = {}
+    # Keep learned links and visited URLs across days; don't waste nightly
+    # quotas on the same unchanged pages. Once weekly re-explore original
+    # entry points for new topical links (never grant rights automatically).
+    if datetime.now(timezone.utc).toordinal() % 7 == 0:
+        for seed in state["_seeded"]:
+            state["_seen"].discard(seed)
+            _enqueue(state, seed)
     return True
 
 
@@ -173,6 +202,12 @@ def _run_page(store, settings, state, profile, fetcher=None,
         return {"status": "queue_empty"}
     item = state["_queue"].pop(0)
     url, depth = item["url"], item["depth"]
+    host = urlsplit(url).hostname
+    # Fair use: no single site consumes the whole day. This is a request
+    # quota, NOT a permanent list of permitted websites.
+    if state["_host_day_used"].get(host, 0) >= 4:
+        state["_queue"].append(item)
+        return {"status": "publisher_daily_quota", "host": host}
     if url in state["_seen"]:
         return {"status": "already_seen", "url": url}
     state["_seen"].add(url)
@@ -189,6 +224,7 @@ def _run_page(store, settings, state, profile, fetcher=None,
     store.put(key, quota["used"] + 1)
     state["pages_attempted"] += 1
     state["pages_attempted_today"] += 1
+    state["_host_day_used"][host] = state["_host_day_used"].get(host, 0) + 1
     try:
         # fetch_page already enforces TLS, DNS public-only, robots, MIME,
         # response size and refusal to follow redirects.
@@ -251,25 +287,24 @@ def _run_page(store, settings, state, profile, fetcher=None,
                 {"question": q["question"], "source_url": url,
                  "status": q["status"]}
                 for q in saved["curiosity"]])[-12:]
-        # At most one internal hop, within explicitly allowed hosts, on
-        # topical paths only. No general search-engine crawling.
-        if depth == 0:
-            added = 0
-            for ref in links:
-                if added >= 3:
-                    break
-                try:
-                    new = canonical_url(urljoin(url, ref))
-                except (ValueError, AttributeError):
-                    continue
-                if _topic_link(new, profile) and _enqueue(state, new, depth + 1):
+        added, external = 0, 0
+        if depth < 3:
+            # Follow topic-bearing anchor links across NEW publisher hosts.
+            # Link text/path are only discovery hints; every new article
+            # must independently pass Arabic relevance and access checks.
+            for target in relevant_links(html, url, profile):
+                if _enqueue(state, target, depth + 1):
                     added += 1
+                    external += int(
+                        urlsplit(target).hostname != urlsplit(url).hostname)
+        state["links_queued_this_run"] += added
+        state["cross_host_links_queued_this_run"] += external
         return {
             "status": "archived_research_only", "url": url,
             "new_unique_text": outcome["new_unique_text"],
             "rights": outcome["rights_status"],
             "source_questions": len(saved["curiosity"]),
-            "new_links_queued": added if depth == 0 else 0,
+            "new_links_queued": added, "new_publisher_links": external,
         }
     except Exception as exc:
         state["errors"] += 1
@@ -280,10 +315,25 @@ def _run_page(store, settings, state, profile, fetcher=None,
 
 
 def cycle(store, settings, state, pages=3, train_steps=40,
-          fetcher=None, sleep_fn=time.sleep):
+          fetcher=None, sleep_fn=time.sleep, search_fn=None):
     if not 1 <= int(pages) <= 8:
         raise ValueError("pages per cycle must be 1..8")
     profile = get_profile(state["profile"])
+    observations = store.get(_HISTORY + state["profile"], []) or []
+    search = (
+        {"status": "skipped_stop_requested", "queries_attempted": 0,
+         "url_candidates": []}
+        if stop_requested(store, state["run_id"], state["profile"])
+        else run_one_search(store, settings, profile, observations,
+                            search_fn=search_fn)
+    )
+    queued_search = 0
+    for found in search.get("url_candidates", []):
+        if _enqueue(state, found):
+            queued_search += 1
+    state["search_status"] = search.get("status", "unknown")
+    state["search_queries_this_run"] += search.get("queries_attempted", 0)
+    state["search_results_queued_this_run"] += queued_search
     outcomes = []
     for i in range(int(pages)):
         if stop_requested(store, state["run_id"], state["profile"]):
@@ -321,6 +371,17 @@ def cycle(store, settings, state, pages=3, train_steps=40,
         state["training_steps_this_run"] += training["steps"]
     state["cycles_completed"] += 1
     state["updated_at_utc"] = _utc()
+    state["pending_research_urls"] = len(state["_queue"])
+    observations = store.get(_HISTORY + state["profile"], []) or []
+    state["distinct_research_hosts"] = len({
+        item.get("host") for item in observations if item.get("host")})
+    store.put("focus_frontier_" + state["profile"], {
+        "day": state["pages_day_utc"],
+        "seen": sorted(state["_seen"])[-6000:],
+        "pending": state["_queue"][:500],
+        "host_counts": state["_host_day_used"],
+        "pages_attempted_today": state["pages_attempted_today"],
+    })
     store.put(_KEY + state["profile"], _public_state(state))
     store.log("focus_cycle", "completed", {
         "profile": state["profile"], "run_id": state["run_id"],
@@ -335,6 +396,14 @@ def cycle(store, settings, state, pages=3, train_steps=40,
         "new_unique_pages_total": state["new_unique_pages"],
         "new_questions_total": state["candidate_questions_created_this_run"],
         "training": state["latest_training"],
+        "search": {
+            "status": state["search_status"],
+            "queries_attempted": search.get("queries_attempted", 0),
+            "urls_queued": queued_search,
+        },
+        "pending_source_urls": len(state["_queue"]),
+        "discovered_publisher_hosts_total":
+            state["distinct_research_hosts"],
         "outcomes": outcomes,
     }
 
@@ -359,6 +428,17 @@ def report(store, profile_name="saudi-history-ar"):
         "observed_source_hosts": source_hosts,
         "cumulative_relevant_research_articles": cumulative_research,
         "cumulative_source_derived_unverified_questions": cumulative_questions,
+        "discovery": {
+            "cross_publisher_topic_links_enabled": True,
+            "no_fixed_website_allowlist": True,
+            "brave_api_configured": bool(os.environ.get("BRAVE_SEARCH_API_KEY")),
+            "search_query_count_last_run": (run or {}).get(
+                "search_queries_this_run", 0),
+            "pending_links": len(
+                (store.get("focus_frontier_" + profile_name) or {}).get(
+                    "pending", [])),
+            "research_hosts": source_hosts,
+        },
         "potential_cross_publisher_review_leads": review_leads(observations),
         "rights_eligible_arabic_training": approved,
         "latest_accepted_focus_model": {
@@ -383,7 +463,8 @@ def report(store, profile_name="saudi-history-ar"):
 def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
         interval_minutes=15, max_pages=24, pages_per_cycle=3,
         train_steps=40, extra_urls=None, fetcher=None, sleep_fn=time.sleep,
-        monotonic_fn=time.monotonic, until_stopped=False):
+        monotonic_fn=time.monotonic, until_stopped=False,
+        search_fn=None):
     """User-started local process; continuous mode ends ONLY on manual stop.
 
     Source queue and page caps reset at UTC midnight, but network permissions,
@@ -441,7 +522,7 @@ def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
                 _rollover_if_new_utc_day(state)
                 result = cycle(store, settings, state, pages=pages_per_cycle,
                                train_steps=train_steps, fetcher=fetcher,
-                               sleep_fn=sleep_fn)
+                               sleep_fn=sleep_fn, search_fn=search_fn)
                 state["hours_elapsed"] = round(
                     (monotonic_fn() - start) / 3600, 3)
                 state["heartbeat_at_utc"] = _utc()
