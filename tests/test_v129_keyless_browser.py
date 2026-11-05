@@ -128,16 +128,16 @@ class BrowserPolicyTests(unittest.TestCase):
         self.assertFalse(_robots_allows(
             "https://duckduckgo.com/?q=saudi",
             fetch_robots=lambda _: (
-                "User-agent: *\\n"
-                "Disallow: /lite\\n"
-                "Disallow: /html\\n"
-                "Disallow: /*?\\n"
-                "Allow: /search.html\\n"
+                "User-agent: *\n"
+                "Disallow: /lite\n"
+                "Disallow: /html\n"
+                "Disallow: /*?\n"
+                "Allow: /search.html\n"
             )))
         self.assertFalse(_robots_allows(
             "https://duckduckgo.com/?q=saudi",
             fetch_robots=lambda _: (
-                "User-agent: *\\nDisallow: /*?\\n"
+                "User-agent: *\nDisallow: /*?\n"
             )))
 
     def test_headless_browser_returns_only_links_not_facts(self):
