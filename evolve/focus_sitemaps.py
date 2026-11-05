@@ -98,32 +98,49 @@ def _robots_denies_wildcard(lines, target_path):
     return False
 
 
-def _fetch_publisher_sitemaps(host):
-    """Read one public publisher's robots.txt and up to 3 same-host XMLs.
+_LOCALES = frozenset(("ar", "en", "fr", "de", "ru", "ch", "zh", "es"))
+_MAX_SITEMAPS_PER_PROBE = 8
 
-    Redirects, auth, TLS failures, unknown robots, private DNS and large XML
-    fail closed.  No browser impersonation or hidden endpoint guessing.
+
+def _locale_relevant(url, language="ar"):
+    """Prefer base-language and requested-language sitemaps, not foreign ones."""
+    segments = urlsplit(url).path.strip("/").lower().split("/")
+    return not (segments[0] in _LOCALES and segments[0] != language)
+
+
+def _fetch_publisher_sitemaps(host, *, language="ar",
+                              document_reader=None,
+                              dns_checker=check_public_dns):
+    """Read robots.txt and bounded linked XML sitemap documents.
+
+    A sitemapindex is NOT a list of articles. Follow its child XML before
+    spending the document budget on other-language sitemap indexes. Each
+    document independently needs robots approval and same-host HTTPS.
     """
-    check_public_dns(host)
-    opener = make_fetcher()
+    dns_checker(host)
+    opener = make_fetcher() if document_reader is None else None
     requests = 0
 
     def read(url, cap):
         nonlocal requests
         requests += 1
+        if document_reader is not None:
+            return document_reader(url, cap)
         with opener.open(urllib.request.Request(
                 url, headers={"User-Agent": USER_AGENT,
                               "Accept": "application/xml,text/xml,text/plain"}),
                 timeout=12) as response:
-            content_type = response.headers.get("Content-Type", "").lower()
+            typ = response.headers.get("Content-Type", "").lower()
             payload = response.read(cap + 1)
             if len(payload) > cap:
                 raise WebSourceError("Sitemap or robots response too large")
-            return payload, content_type
+            return payload, typ
 
     robots_url = "https://" + host + "/robots.txt"
     try:
         robots, _ = read(robots_url, _MAX_ROBOTS_BYTES)
+        if isinstance(robots, bytes) and len(robots) > _MAX_ROBOTS_BYTES:
+            raise WebSourceError("Oversized robots.txt")
         rules = robots.decode("utf-8", "replace").splitlines()
     except HTTPError as exc:
         if exc.code in (404, 410):
@@ -140,20 +157,27 @@ def _fetch_publisher_sitemaps(host):
     advertised = []
     for line in rules:
         if line.lower().lstrip().startswith("sitemap:"):
-            candidate = line.partition(":")[2].strip()
-            allowed = _same_host_https(candidate, host)
-            if allowed:
-                advertised.append(allowed)
-    # robots-declared sitemap paths first, conventional XML last.
-    endpoints = list(dict.fromkeys(
-        advertised[:3] + ["https://" + host + "/sitemap.xml"]))
-    pending = endpoints[:3]
+            link = _same_host_https(line.partition(":")[2].strip(), host)
+            if link and _locale_relevant(link, language):
+                advertised.append(link)
+    main = "https://" + host + "/sitemap.xml"
+    # Root-language index and requested-language declarations first; generic
+    # fallback only when no publisher declaration exists.
+    endpoints = list(dict.fromkeys(advertised + [main]))
+    endpoints.sort(key=lambda u: (
+        0 if u == main else 1 if urlsplit(u).path.startswith(
+            "/" + language + "/") else 2, u))
+    pending = endpoints
     seen = set()
     urls = []
     failures = []
-    while pending and len(seen) < 3:
+    parsed_indexes = 0
+    parsed_urlsets = 0
+    listed_locations = 0
+    while pending and len(seen) < _MAX_SITEMAPS_PER_PROBE:
         sitemap = pending.pop(0)
-        if sitemap in seen or not _same_host_https(sitemap, host):
+        if (sitemap in seen or not _same_host_https(sitemap, host)
+                or not _locale_relevant(sitemap, language)):
             continue
         seen.add(sitemap)
         target_path = urlsplit(sitemap).path or "/"
@@ -163,8 +187,11 @@ def _fetch_publisher_sitemaps(host):
             continue
         try:
             data, typ = read(sitemap, _MAX_XML_BYTES)
-            if not (any(x in typ for x in
-                        ("xml", "text/plain", "application/octet-stream"))):
+            if not isinstance(data, bytes) or len(data) > _MAX_XML_BYTES:
+                failures.append("sitemap_oversized")
+                continue
+            if not any(x in typ for x in
+                       ("xml", "text/plain", "application/octet-stream")):
                 failures.append("sitemap_not_xml")
                 continue
             kind, links = _xml_links(data)
@@ -173,24 +200,42 @@ def _fetch_publisher_sitemaps(host):
             failures.append("sitemap_unavailable_" + type(exc).__name__)
             continue
         if kind == "urlset":
-            urls.extend(
-                url for url in links if _same_host_https(url, host))
+            parsed_urlsets += 1
+            listed_locations += len(links)
+            for url in links:
+                link = _same_host_https(url, host)
+                if link:
+                    urls.append(link)
+                if len(urls) >= 20000:
+                    break
         else:
-            # Do not scan huge sitemap indices.  Prefer children that mention
-            # Arabic/article/history, then scan at most the remaining budget.
-            choices = [x for x in links if _same_host_https(x, host)]
-            choices.sort(key=lambda x: (not any(
-                signal in x.casefold() for signal in
-                ("ar", "article", "post", "page", "history")), x))
-            for child in choices[:2]:
-                if child not in seen and child not in pending:
-                    pending.append(child)
+            parsed_indexes += 1
+            choices = [x for x in links if _same_host_https(x, host)
+                       and _locale_relevant(x, language)]
+            choices.sort(key=lambda x: (
+                0 if any(word in x.casefold() for word in
+                         ("/ar/", "article", "history", "post", "page"))
+                else 1, x))
+            # Prefer child XMLs ahead of alternative language/root indexes.
+            children = [link for link in choices[:_MAX_SITEMAPS_PER_PROBE]
+                        if link not in seen and link not in pending]
+            pending = children + pending
+        if len(urls) >= 20000:
+            break
     return {
-        "status": "sitemap_urls_found" if urls else
-                  (failures[0] if failures else "sitemap_no_article_urls"),
+        "status": ("sitemap_urls_found" if urls else
+                   "sitemap_parsed_but_no_article_urls"
+                   if parsed_indexes or parsed_urlsets else
+                   failures[0] if failures else "sitemap_no_article_urls"),
         "url_candidates": urls[:20000],
         "network_requests": requests,
         "sitemap_documents_checked": len(seen),
+        "sitemap_indexes_parsed": parsed_indexes,
+        "sitemap_urlsets_parsed": parsed_urlsets,
+        "sitemap_locations_listed": listed_locations,
+        "sitemap_failures": failures[:5],
+        "sitemap_more_documents_unchecked":
+            bool(pending and len(seen) >= _MAX_SITEMAPS_PER_PROBE),
     }
 
 
@@ -265,7 +310,8 @@ def discover_publisher_sitemaps(store, profile, observations, *,
     store.put(key, history)
     try:
         result = (sitemap_fn(host) if sitemap_fn is not None
-                  else _fetch_publisher_sitemaps(host))
+                  else _fetch_publisher_sitemaps(
+                      host, language=profile.get("language", "ar")))
         if not isinstance(result, dict):
             raise ValueError("Unexpected sitemap provider result")
     except Exception as exc:
@@ -301,6 +347,13 @@ def discover_publisher_sitemaps(store, profile, observations, *,
         "sitemap_documents_checked":
             result.get("sitemap_documents_checked", 0),
         "candidate_urls_found": len(selected),
+        "topical_urls_after_filter": len(all_topical),
+        "sitemap_indexes_parsed": result.get("sitemap_indexes_parsed", 0),
+        "sitemap_urlsets_parsed": result.get("sitemap_urlsets_parsed", 0),
+        "sitemap_locations_listed": result.get("sitemap_locations_listed", 0),
+        "sitemap_failures": result.get("sitemap_failures", []),
+        "sitemap_more_documents_unchecked":
+            result.get("sitemap_more_documents_unchecked", False),
         "backlog_remaining": len(remainder),
         "candidate_urls_are_not_training_rights": True,
         "retry_after_seconds": _HOST_GAP_SECONDS,
