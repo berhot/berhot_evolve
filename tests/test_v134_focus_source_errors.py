@@ -4,6 +4,7 @@ import tempfile
 import unittest
 
 from evolve.focus_data import get_profile
+from evolve.focus_discovery import relevant_links
 from evolve.focus_overnight import (
     _run_page, _source_error_policy, _publish, cycle, init_state,
 )
@@ -42,6 +43,26 @@ class FocusSourceFailureTests(unittest.TestCase):
         state["_seen"] = set()
         state["_host_last_at"] = {}
         return store, settings, state
+
+    def test_discovery_skips_home_and_tag_navigation(self):
+        profile = get_profile(PROFILE)
+        html = (
+            '<html><body>'
+            '<a href="https://www.spa.gov.sa/">تاريخ المملكة السعودية</a>'
+            '<a href="https://www.darah.org.sa/">الدرعية تاريخ السعودية</a>'
+            '<a href="/tag/history">تاريخ المملكة السعودية</a>'
+            '<a href="/category/saudi">تاريخ المملكة السعودية</a>'
+            '<a href="https://www.spa.gov.sa/ar/N2520902">'
+            'تاريخ المملكة العربية السعودية الدرعية</a>'
+            '</body></html>'
+        )
+        links = relevant_links(
+            html, "https://saudipedia.com/saudi-history", profile)
+        self.assertIn("https://www.spa.gov.sa/ar/N2520902", links)
+        self.assertNotIn("https://www.spa.gov.sa/", links)
+        self.assertNotIn("https://www.darah.org.sa/", links)
+        self.assertFalse(any("/tag/" in url or "/category/" in url
+                             for url in links))
 
     def test_classification_never_retries_denials_or_redirects(self):
         expected = {
