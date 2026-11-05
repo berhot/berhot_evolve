@@ -18,7 +18,7 @@ from .web_discovery import (
     USER_AGENT, canonical_url, check_public_dns, make_fetcher, WebSourceError,
 )
 
-_MAX_XML_BYTES = 1_500_000
+_MAX_XML_BYTES = 5_000_000
 _MAX_ROBOTS_BYTES = 250_000
 _HOST_GAP_SECONDS = 6 * 3600
 _SKIP_PATHS = ("tag/", "tags/", "category/", "categories/", "search/",
@@ -37,7 +37,7 @@ def _same_host_https(link, host):
     return link if urlsplit(link).hostname == host else None
 
 
-def _xml_links(data, *, max_entries=5000):
+def _xml_links(data, *, max_entries=20000):
     """Parse a bounded XML document without accepting DTD or entity tricks."""
     if not isinstance(data, bytes) or len(data) > _MAX_XML_BYTES:
         raise ValueError("XML sitemap too large or not bytes")
@@ -188,7 +188,7 @@ def _fetch_publisher_sitemaps(host):
     return {
         "status": "sitemap_urls_found" if urls else
                   (failures[0] if failures else "sitemap_no_article_urls"),
-        "url_candidates": urls[:5000],
+        "url_candidates": urls[:20000],
         "network_requests": requests,
         "sitemap_documents_checked": len(seen),
     }
@@ -196,7 +196,7 @@ def _fetch_publisher_sitemaps(host):
 
 def discover_publisher_sitemaps(store, profile, observations, *,
                                 sitemap_fn=None, now=None,
-                                max_candidates=25):
+                                max_candidates=25, already_seen=None):
     """Try one due source publisher each time the research frontier runs dry.
 
     Rotates hosts deterministically across cycles, with durable 6h cooldown.
@@ -204,6 +204,31 @@ def discover_publisher_sitemaps(store, profile, observations, *,
     sources, not arbitrary URLs embedded in scraped page text.
     """
     now = time.time() if now is None else float(now)
+    known = set(already_seen or ())
+    backlog_key = "focus_sitemap_backlog_" + profile["name_ar"]
+    backlog = store.get(backlog_key) or []
+    if backlog:
+        deliver = []
+        leftover = []
+        for link in backlog:
+            if link in known:
+                continue
+            if len(deliver) < max_candidates:
+                deliver.append(link)
+            else:
+                leftover.append(link)
+        store.put(backlog_key, leftover)
+        if deliver:
+            return {
+                "status": "sitemap_cached_candidate_links",
+                "host": urlsplit(deliver[0]).hostname,
+                "url_candidates": deliver,
+                "candidate_urls_found": len(deliver),
+                "backlog_remaining": len(leftover),
+                "network_requests": 0,
+                "candidate_urls_are_not_training_rights": True,
+            }
+
     key = "focus_sitemap_checks_" + profile["name_ar"]
     history = store.get(key) or {}
     hosts = []
@@ -253,10 +278,14 @@ def discover_publisher_sitemaps(store, profile, observations, *,
         url for url in result.get("url_candidates", [])
         if _same_host_https(url, host)
     ]
-    selected = _select_topical(candidates, profile, max_urls=max_candidates)
+    all_topical = _select_topical(candidates, profile, max_urls=2000)
+    unseen = [url for url in all_topical if url not in known]
+    selected, remainder = (
+        unseen[:max_candidates], unseen[max_candidates:2000])
+    store.put(backlog_key, remainder)
     history[host] = {
         "checked_at": now, "status": result.get("status", "unknown"),
-        "candidate_count": len(selected),
+        "candidate_count": len(unseen),
     }
     store.put(key, history)
     count = int(result.get("network_requests", 0))
@@ -272,6 +301,7 @@ def discover_publisher_sitemaps(store, profile, observations, *,
         "sitemap_documents_checked":
             result.get("sitemap_documents_checked", 0),
         "candidate_urls_found": len(selected),
+        "backlog_remaining": len(remainder),
         "candidate_urls_are_not_training_rights": True,
         "retry_after_seconds": _HOST_GAP_SECONDS,
     }
