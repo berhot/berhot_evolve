@@ -33,8 +33,9 @@ _PROFILES = {
             "https://www.mofa.gov.sa/ar/ksa/Pages/history.aspx",
             "https://www.mofa.gov.sa/ar/ksa/Pages/foundingday.aspx",
         ),
-        "allowed_hosts": (
+        "initial_seed_hosts": (
             "saudipedia.com", "www.spa.gov.sa", "www.mofa.gov.sa"),
+        "discovery_scope": "topic_driven_cross_publisher_no_fixed_host_allowlist",
         "policy_urls": (
             "https://saudipedia.com/footer/" + quote("شروط الاستخدام"),
         ),
