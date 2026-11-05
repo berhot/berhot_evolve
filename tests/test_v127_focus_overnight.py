@@ -197,16 +197,27 @@ class FocusTrainTests(unittest.TestCase):
                     self.assertEqual(result["status"], "review_recorded")
                 pre = readiness(store, "saudi-history-ar")
                 self.assertEqual(pre["status"], "ready", pre)
-                result = train_if_eligible(store, "saudi-history-ar",
-                                           steps=3, seed=17)
+                actual_steps_seen = []
+                result = train_if_eligible(
+                    store, "saudi-history-ar", steps=3, seed=17,
+                    progress=lambda n, total, loss: actual_steps_seen.append(
+                        (n, total, loss)))
+                self.assertEqual([n for n, _t, _loss in actual_steps_seen],
+                                 [1, 2, 3])
+                self.assertTrue(all(target == 3 for _, target, _ in actual_steps_seen))
+                self.assertTrue(all(loss > 0 for _, _, loss in actual_steps_seen))
                 self.assertEqual(result["status"], "trained", result)
                 self.assertEqual(result["steps"], 3)
                 self.assertGreater(result["trainable_parameters"], 1000)
                 self.assertTrue(result["sha256"])
                 self.assertFalse(result["selected_on_test"])
                 self.assertFalse(result["understands_saudi_history"])
-                repeat = train_if_eligible(store, "saudi-history-ar",
-                                           steps=3, seed=17)
+                unexpected_progress = []
+                repeat = train_if_eligible(
+                    store, "saudi-history-ar", steps=3, seed=17,
+                    progress=lambda n, target, loss:
+                        unexpected_progress.append(n))
+                self.assertEqual(unexpected_progress, [])
                 self.assertEqual(repeat["status"], "skipped_unchanged_approved_data")
                 self.assertEqual(repeat["steps"], 0)
             finally:
