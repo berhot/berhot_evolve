@@ -11,6 +11,7 @@ import threading
 import unittest
 
 from evolve.focus_control import acquire_lock, release_lock, worker_running
+from evolve.open_corpus import archive_page
 from evolve.settings import load_config
 from evolve.store import Store
 from evolve.v118_studio import LearningController, ThreadingHTTPServer, _handler
@@ -33,11 +34,17 @@ class InspectorTests(unittest.TestCase):
             lock = None
             try:
                 url = "https://example.org/saudi-history"
+                source_text = ("تاريخ الدولة السعودية وتأسيس الدرعية. " * 70)
+                archived = archive_page(
+                    store, url,
+                    "<html><title>تاريخ الدولة السعودية</title><article>" +
+                    source_text + "</article></html>",
+                    source_text, title="تاريخ الدولة السعودية")
                 store.put("focus_observations_" + PROFILE, [{
                     "title": "تاريخ الدولة السعودية",
                     "url": url, "host": "example.org",
                     "rights": "UNKNOWN", "noai": False,
-                    "source_sha256": "a" * 64,
+                    "source_sha256": archived["clean_sha256"],
                     "curiosity": [{
                         "question": "متى تأسست الدولة السعودية؟",
                         "subject": "تأسيس الدولة السعودية",
