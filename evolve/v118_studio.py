@@ -15,7 +15,7 @@ import math
 import hashlib
 import secrets
 import time
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs
 
 from .store import Store
 from .open_corpus import corpus_seed
@@ -268,6 +268,18 @@ class LearningController:
                     "note": "Only while this local server runs. Operator-enabled automated cycles choose source-observed research words; max 6 public HTTPS requests per daily cycle, within shared budget and robots policy; rights are never auto-approved.",
                 },
             }
+        finally:
+            store.close()
+
+    def focus_activity(self, *, after=None, before=None, limit=150):
+        """Read persisted worker events with cursors; never clear history."""
+        store = self._store()
+        try:
+            # While a previous-version worker is still running, persist each
+            # remaining recent_activity event as soon as Studio sees it.
+            store.backfill_focus_activity(FOCUS_PROFILE)
+            return store.focus_activity(
+                FOCUS_PROFILE, after=after, before=before, limit=limit)
         finally:
             store.close()
 
@@ -635,6 +647,23 @@ def _handler(controller, token, origin):
                 self._reply(controller.status())
             elif self.path == "/api/plan":
                 self._reply(controller.plan())
+            elif urlsplit(self.path).path == "/api/focus/activity":
+                try:
+                    params = parse_qs(urlsplit(self.path).query,
+                                      keep_blank_values=True)
+                    if (set(params) - {"after", "before", "limit"} or
+                            any(len(values) != 1 for values in params.values()) or
+                            ("after" in params and "before" in params)):
+                        raise ValueError("Invalid activity query")
+                    limit = int(params.get("limit", ["150"])[0])
+                    if not 1 <= limit <= 250:
+                        raise ValueError("Activity page size must be 1..250")
+                    after = int(params["after"][0]) if "after" in params else None
+                    before = int(params["before"][0]) if "before" in params else None
+                    self._reply(controller.focus_activity(
+                        after=after, before=before, limit=limit))
+                except ValueError:
+                    self._reply({"error": "invalid_activity_cursor"}, 400)
             else:
                 self._reply({"error": "not_found"}, 404)
 
