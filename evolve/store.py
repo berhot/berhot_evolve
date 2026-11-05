@@ -114,6 +114,18 @@ class Store:
             );
             CREATE INDEX IF NOT EXISTS focus_activity_profile_id_idx
               ON focus_activity_events(profile,id);
+            -- Durable focus-only corpus membership. The latest-run counters
+            -- reset on restart; these source facts must never do so.
+            CREATE TABLE IF NOT EXISTS focus_archived_sources (
+                profile TEXT NOT NULL, url TEXT NOT NULL,
+                source_sha256 TEXT NOT NULL,
+                clean_utf8_bytes INTEGER NOT NULL DEFAULT 0,
+                source_questions INTEGER NOT NULL DEFAULT 0,
+                recorded_at_utc TEXT NOT NULL,
+                PRIMARY KEY(profile,url)
+            );
+            CREATE INDEX IF NOT EXISTS focus_sources_profile_sha_idx
+              ON focus_archived_sources(profile,source_sha256);
         """)
         # Migrate existing v0.3 databases without losing discoveries.
         columns = {row[1] for row in self.db.execute("PRAGMA table_info(concept_tasks)")}
@@ -130,6 +142,80 @@ class Store:
         if "last_attempt_at" not in question_columns:
             self.db.execute("ALTER TABLE research_questions ADD COLUMN last_attempt_at REAL")
         self.db.commit()
+
+    def record_focus_archive(self, profile, url, source_sha256,
+                             source_questions=0):
+        """Associate archived source with focus corpus across worker restarts.
+
+        Record the size of the cleaned immutable UTF-8 text, not the size
+        of the raw HTML, extracted pre-normalization text, or training bytes.
+        Never open files outside this store's clean corpus directory.
+        """
+        if not profile or not url or not source_sha256:
+            raise ValueError("Focus source identity required")
+        row = self.db.execute(
+            "SELECT clean_path FROM web_corpus_texts WHERE sha256=?",
+            (source_sha256,)).fetchone()
+        if row is None:
+            return False
+        root = (self.root / "web_corpus" / "clean").resolve()
+        candidate = Path(row["clean_path"]).resolve()
+        size = 0
+        if candidate.is_relative_to(root) and candidate.is_file():
+            size = candidate.stat().st_size
+        self.db.execute(
+            "INSERT INTO focus_archived_sources "
+            "(profile,url,source_sha256,clean_utf8_bytes,source_questions,"
+            "recorded_at_utc) VALUES (?,?,?,?,?,?) "
+            "ON CONFLICT(profile,url) DO UPDATE SET "
+            "source_sha256=excluded.source_sha256,"
+            "clean_utf8_bytes=excluded.clean_utf8_bytes,"
+            "source_questions=excluded.source_questions,"
+            "recorded_at_utc=excluded.recorded_at_utc",
+            (profile, url, source_sha256, size,
+             max(0, int(source_questions)), now()))
+        self.db.commit()
+        return True
+
+    def backfill_focus_archives(self, profile, observations):
+        """One-time idempotent recovery for pre-index source observations."""
+        indexed = {r["url"]: r["source_sha256"] for r in self.db.execute(
+            "SELECT url,source_sha256 FROM focus_archived_sources "
+            "WHERE profile=?", (profile,))}
+        changed = 0
+        for item in observations or []:
+            if not isinstance(item, dict):
+                continue
+            url, digest = item.get("url"), item.get("source_sha256")
+            if not url or not digest or indexed.get(url) == digest:
+                continue
+            if self.record_focus_archive(
+                    profile, url, digest, len(item.get("curiosity") or [])):
+                changed += 1
+        return changed
+
+    def focus_archive_totals(self, profile):
+        """Saved cross-session totals; unique bytes dedup by clean SHA."""
+        row = self.db.execute(
+            "SELECT COUNT(*) AS source_urls,"
+            "COUNT(DISTINCT source_sha256) AS unique_texts,"
+            "COALESCE(SUM(source_questions),0) AS source_questions "
+            "FROM focus_archived_sources WHERE profile=?", (profile,)
+        ).fetchone()
+        size = self.db.execute(
+            "SELECT COALESCE(SUM(size),0) FROM ("
+            "SELECT MAX(clean_utf8_bytes) AS size "
+            "FROM focus_archived_sources WHERE profile=? "
+            "GROUP BY source_sha256)", (profile,)
+        ).fetchone()[0]
+        return {
+            "source_urls": int(row["source_urls"]),
+            "unique_texts": int(row["unique_texts"]),
+            "source_questions": int(row["source_questions"]),
+            "unique_clean_utf8_bytes": int(size),
+            "scope": "saved_focus_archive_all_runs",
+            "training_bytes": 0,
+        }
 
     def close(self):
         self.db.close()
