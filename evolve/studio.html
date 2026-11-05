@@ -63,7 +63,7 @@ footer{color:var(--muted);font-size:11px;text-align:center;margin-top:24px}
 </section>
 <section class="panel" aria-label="Saudi history focus learning agent">
 <div class="focus-head"><div><div class="eyebrow">Lifelong focus / Arabic · Saudi history</div><h2>Focus Agent · Learn until I stop</h2></div><span id="focus-state" class="tag focus-state">NOT STARTED</span></div>
-<p class="small" style="margin-top:8px">Open-ended local research supervisor: no fixed page or search stop counts. Keyless headless browser discovery, source-specific pacing, robots/access rules and zero automatic training rights. It may remain idle when no permitted work is available.</p>
+<p class="small" style="margin-top:8px">Open-ended local research supervisor: topic-linked articles, policy-gated search, source-specific pacing, robots/access rules and zero automatic training rights. Search providers may be blocked; article discovery and rights reviews are reported separately from neural training.</p>
 <div class="focus-livebar" aria-label="Persistent agent session timer">
   <div><div class="metric-label">Session elapsed · keeps counting after refresh</div><div class="focus-elapsed mono" id="focus-elapsed">00:00:00</div></div>
   <div><div class="metric-label">Started at</div><strong id="focus-started">Not started</strong><div class="small muted" id="focus-run-id">No session yet</div></div>
@@ -90,6 +90,7 @@ footer{color:var(--muted);font-size:11px;text-align:center;margin-top:24px}
 <div class="mline"><span class="muted">Current training status</span><strong id="focus-training-status">Not checked</strong></div>
 <div class="mline"><span class="muted">Research hosts / waiting source URLs</span><strong id="focus-discovery">—</strong></div>
 <div class="mline"><span class="muted">Cross-publisher links / web searches</span><strong id="focus-search">—</strong></div>
+<div class="mline"><span class="muted">Search discovery health</span><strong id="focus-search-health">Not checked</strong></div>
 <div class="mline"><span class="muted">Potential claim disagreements for review</span><strong id="focus-corrections">—</strong></div>
 <div class="mline"><span class="muted">Last worker heartbeat</span><strong id="focus-heartbeat">—</strong></div>
 <div class="controls" style="margin-top:14px">
@@ -252,7 +253,12 @@ async function refresh(){
    (f.pages_today||0)+" / "+(f.max_pages_per_day||24)+" pages (UTC) · "+(f.pages_attempted||0)+" total attempts");
  text("focus-training-status",f.training_status||"Not checked");
  text("focus-discovery",(f.distinct_research_hosts||0)+" publishers · "+(f.pending_research_urls||0)+" pending URLs");
- text("focus-search",(f.cross_publisher_links_queued||0)+" external links · "+(f.search_queries_this_run||0)+" keyless browser searches · "+(f.browser_search_provider||"duckduckgo"));
+ text("focus-search",(f.cross_publisher_links_queued||0)+" external links · "+(f.search_queries_this_run||0)+" search attempts · "+(f.browser_search_provider||"duckduckgo"));
+ const sd=f.search_diagnostic||{};
+ text("focus-search-health",(f.search_status||"not_checked").replaceAll("_"," ")+
+   (sd.error_phase?" · "+sd.error_phase.replaceAll("_"," "):"")+
+   (sd.error_type?" · "+sd.error_type:"")+
+   (sd.retry_after_seconds!=null?" · retry after "+sd.retry_after_seconds+"s":""));
  text("focus-corrections",(f.source_comparison_leads||0)+" unverified review leads");
  text("focus-heartbeat",dateFmt(f.heartbeat_at_utc));
  $("focus-start").disabled=!!f.process_running||!compatible(s);
