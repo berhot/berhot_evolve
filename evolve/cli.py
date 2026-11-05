@@ -90,6 +90,17 @@ def main(argv=None):
     qualifier.add_argument("--host", default=None, help="Inspect one publisher host, e.g. oceanservice.noaa.gov")
     evaluator = sub.add_parser("v124-eval", help="Read-only current citation/abstention audit and real neural-vs-lexical inference competition coverage")
     evaluator.add_argument("--limit", type=int, default=30)
+    pairs = sub.add_parser("v125-pairs", help="Read-only real same-topic approved quote pairs needing human relevance review")
+    pairs.add_argument("--limit", type=int, default=40)
+    label = sub.add_parser("v125-label", help="Operator-attest immutable same-topic better/worse source quote preference; DEVELOPMENT only")
+    label.add_argument("--question", required=True)
+    label.add_argument("--better-url", required=True)
+    label.add_argument("--better-sha", required=True)
+    label.add_argument("--worse-url", required=True)
+    label.add_argument("--worse-sha", required=True)
+    label.add_argument("--confirm-human-review", action="store_true")
+    reviewed = sub.add_parser("v125-score", help="Read-only lexical vs neural results on explicitly human-reviewed development pairs (not blind holdout)")
+    reviewed.add_argument("--limit", type=int, default=100)
     studio = sub.add_parser("studio", help="Launch local live web dashboard with chat and controlled learning")
     studio.add_argument("--port", type=int, default=8787)
     studio.add_argument("--interval", type=int, default=3600,
@@ -444,6 +455,18 @@ def main(argv=None):
             elif args.command == "v124-eval":
                 from .v124_inference_audit import evaluate_inference
                 result = evaluate_inference(store, limit=args.limit)
+            elif args.command == "v125-pairs":
+                from .v125_reviewed_benchmark import candidate_pairs
+                result = candidate_pairs(store, limit=args.limit)
+            elif args.command == "v125-label":
+                from .v125_reviewed_benchmark import review_pair
+                result = review_pair(
+                    store, args.question, args.better_url, args.better_sha,
+                    args.worse_url, args.worse_sha,
+                    confirm=args.confirm_human_review)
+            elif args.command == "v125-score":
+                from .v125_reviewed_benchmark import score_reviewed_pairs
+                result = score_reviewed_pairs(store, limit=args.limit)
             elif args.command == "v120-ask":
                 from .v120_grounded import grounded_answer
                 result = grounded_answer(store, args.question)
