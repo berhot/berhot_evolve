@@ -24,6 +24,18 @@ def main(argv=None):
     explore.add_argument('--focus', default='', help=argparse.SUPPRESS)  # legacy flag ignored
     explore.add_argument('--limit', type=int, default=8)
     explore.add_argument('--cross-host', action='store_true', help='Follow public links across domains within crawl budgets')
+    focus_plan = sub.add_parser("focus-plan", help="Preview isolated Arabic Saudi-history overnight research scope without networking")
+    focus_plan.add_argument("--profile", choices=["saudi-history-ar"], default="saudi-history-ar")
+    focus_report = sub.add_parser("focus-report", help="Read-only morning progress and true training-weight statistics")
+    focus_report.add_argument("--profile", choices=["saudi-history-ar"], default="saudi-history-ar")
+    focus_run = sub.add_parser("focus-overnight", help="Opt-in bounded local overnight Arabic research agent; needs Mac awake")
+    focus_run.add_argument("--profile", choices=["saudi-history-ar"], default="saudi-history-ar")
+    focus_run.add_argument("--network", action="store_true", help="Required explicit consent for robots-compliant site access")
+    focus_run.add_argument("--hours", type=float, default=8.0)
+    focus_run.add_argument("--interval-minutes", type=int, default=15)
+    focus_run.add_argument("--max-pages", type=int, default=24)
+    focus_run.add_argument("--pages-per-cycle", type=int, default=3)
+    focus_run.add_argument("--train-steps", type=int, default=40)
     sub.add_parser("status", help="Show persistent learner status")
     sub.add_parser("model-audit", help="Read-only actual local knowledge, saved models, autonomy and dependency inventory")
     sub.add_parser("corpus-status", help="Show collected web pages, exact dedup, rights metadata and training separation")
@@ -387,6 +399,22 @@ def main(argv=None):
         from .runtime import daemon
         daemon(settings)
         return
+    if args.command == "focus-overnight":
+        if not args.network:
+            parser.error("focus-overnight requires --network: no implicit web access")
+        from .focus_overnight import run
+        focus_store = Store(settings["storage_root"])
+        try:
+            run(
+                focus_store, settings,
+                profile_name=args.profile,
+                hours=args.hours, interval_minutes=args.interval_minutes,
+                max_pages=args.max_pages,
+                pages_per_cycle=args.pages_per_cycle,
+                train_steps=args.train_steps)
+        finally:
+            focus_store.close()
+        return
     if args.command == "once":
         from .runtime import once
         result = once(settings, network=not args.offline, train=not args.no_train,
@@ -402,6 +430,12 @@ def main(argv=None):
             elif args.command == "corpus-status":
                 from .open_corpus import corpus_status
                 result = corpus_status(store)
+            elif args.command == "focus-plan":
+                from .focus_overnight import plan
+                result = plan(profile_name=args.profile)
+            elif args.command == "focus-report":
+                from .focus_overnight import report
+                result = report(store, profile_name=args.profile)
             elif args.command == "corpus-seed":
                 from .open_corpus import corpus_seed
                 result = corpus_seed(store, args.urls, cross_host=not args.same_host)

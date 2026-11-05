@@ -1842,3 +1842,86 @@ After manually reviewing rights-eligible candidates using the existing
 the approved corpus really contains additional competing explanations.
 Collect and independently label unseen publisher data for a true blind
 semantic evaluation before claiming improvement over lexical ranking.
+
+## EVOLVE v1.27 — Overnight Arabic Saudi-history focus agent
+
+This is a **user-initiated local Mac worker**, not an agent ChatGPT can
+operate while the user is absent. It runs a bounded 8-hour research session
+with an explicit network opt-in. It scans a small, preset list of actual
+Arabic Saudi-history article seeds from Saudipedia, SPA and MOFA, each
+subject to its site's terms/robots/TLS. At most one topical internal link
+hop is followed on those three allowed hosts, with a shared UTC web
+quota, a per-run page limit, a 2-second minimum request delay, and no
+bypass of access controls. The worker does not roam arbitrary websites.
+
+Topic relevance is computed from the pages' Arabic content and historical
+terms; the topic selection does not fabricate factual concepts. Research
+articles are archived using the existing exact-SHA text deduplication.
+Unreviewed pages are UNKNOWN-rights by default and never train a model.
+Source sentences can yield Arabic historical date questions; these remain
+unverified. Independent-source date mentions are review leads, not facts
+that the worker can correct without a verifier.
+
+The optional **actual CPU PyTorch learner** is a small UTF-8 byte-level
+causal GRU (fixed parameter size). It trains only on material that has
+been **individually human-reviewed** as CC0/public domain with a matching
+archived SHA, is Arabic and on topic, and supplies at least three
+independent publisher hosts and enough text. Full-content SHA duplicates
+are removed before publisher-held-out train/validation/test assignment.
+The test split never selects checkpoints; validation improvement does.
+Changed training data may continue an accepted model's weights.
+Without suitable licensed material the honest training count is ZERO.
+
+### Before sleep (Mac terminal, lid open, connected to power)
+
+```bash
+cd ~/Desktop/berhot_evolve
+git switch main
+git fetch origin
+git merge --ff-only origin/main
+python3 -m pip install -e '.[train]'
+python3 -m evolve focus-plan
+mkdir -p storage/logs
+nohup caffeinate -i python3 -u -m evolve focus-overnight \
+  --network --profile saudi-history-ar \
+  --hours 8 --interval-minutes 15 \
+  --max-pages 24 --pages-per-cycle 3 --train-steps 40 \
+  > storage/logs/saudi-history-overnight.log 2>&1 &
+echo $! > storage/focus-overnight.pid
+```
+
+`caffeinate -i` prevents idle system sleep while the process runs, but
+cannot reliably keep a closed-lid laptop awake. Keep the Mac charging
+and the lid open. `nohup` detaches from the terminal. This is an on-device
+program, not cloud/background work performed by ChatGPT.
+
+### Morning: inspect progress
+
+```bash
+python3 -m evolve focus-report --profile saudi-history-ar
+python3 -m evolve corpus-status
+tail -n 40 storage/logs/saudi-history-overnight.log
+```
+
+To stop the process safely:
+
+```bash
+kill "$(cat storage/focus-overnight.pid)"
+```
+
+Reported counters separate article attempts, archived snapshots, unique
+hashes, duplicate pages, Arabic candidate questions, unreviewed source
+rights, eligible training sources, training steps and accepted checkpoint
+SHA. Saved run status cannot independently prove that a process remains
+running. Neural training does not add parameters to a fixed architecture.
+
+**Important licensing note:** Saudipedia and MOFA have restrictive terms
+regarding content reuse. This preset is for small research-only examination,
+not AI training rights, redistribution, commercial data ingestion, or
+unlimited mirroring. Obtain explicit permissions when needed. No domain,
+including governmental sites, is deemed automatically public domain.
+
+This small learner is not a general Arabic language model, fact checker,
+or independent Saudi historian. The pipeline does not establish historical
+truth by detecting repeated phrases, does not silently self-correct facts,
+and does not support unsupervised scientific generalization claims.
