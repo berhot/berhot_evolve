@@ -249,6 +249,36 @@ class SitemapDiscoveryTests(unittest.TestCase):
             item["kind"] == "publisher_sitemap_result"
             for item in self.store.focus_activity(PROFILE)["events"]))
 
+    def test_sitemap_probe_waits_before_article_on_same_host(self):
+        clock = [1000.0]
+        waits = []
+        articles = []
+        host = "saudipedia.com"
+        def sitemap_provider(given_host):
+            self.assertEqual(given_host, host)
+            return {
+                "status": "sitemap_urls_found",
+                "url_candidates": [
+                    "https://saudipedia.com/الدولة-السعودية-الأولى"],
+                "network_requests": 2,
+            }
+        def advance(seconds):
+            waits.append(seconds)
+            clock[0] += seconds
+        def fetch(url):
+            articles.append(url)
+            return article_html()
+        result = cycle(
+            self.store, self.settings, self.state,
+            pages=1, train_steps=1,
+            fetcher=fetch, sitemap_fn=sitemap_provider,
+            sleep_fn=advance, time_fn=lambda: clock[0])
+        self.assertEqual(result["pages_attempted_this_cycle"], 1)
+        self.assertEqual(len(articles), 1)
+        self.assertGreaterEqual(sum(waits), 20)
+        self.assertGreaterEqual(
+            result["publisher_pacing_waits_this_cycle"], 1)
+
     def test_offline_fixture_never_makes_sitemap_network_request(self):
         result = cycle(
             self.store, self.settings, self.state,
