@@ -1770,3 +1770,37 @@ locked before model training or tuning.
 
 The autonomous topic queue also rejects generic `facts` and `flags`
 navigation-derived words without changing already saved research.
+
+## EVOLVE v1.25 — Human-reviewed same-topic evidence diagnostics
+
+v1.24 showed that only one of nine topics had competing eligible quotations, and the neural ranker did not change the lexical top choice. This version adds a separate append-only, operator-attested DEVELOPMENT diagnostic, not a blind test.
+
+List real rights-approved same-topic quote candidates and their exact SHA256 identifiers:
+
+```bash
+python3 -m evolve v125-pairs --limit 40
+```
+
+After personally checking that one quote better answers a given question, record the SHA256 identifiers shown by that command:
+
+```bash
+python3 -m evolve v125-label \
+  --question 'What is the Sun?' \
+  --better-url 'https://science.nasa.gov/sun/facts/' \
+  --better-sha ACTUAL_SHA256_FROM_V125_PAIRS \
+  --worse-url 'https://science.nasa.gov/sun/facts/' \
+  --worse-sha OTHER_ACTUAL_SHA256_FROM_V125_PAIRS \
+  --confirm-human-review
+
+python3 -m evolve v125-score
+```
+
+Replace the identifiers with actual 64-character SHA256 values. The example is not a statement about which Sun passage is better.
+
+Manual judgments must refer to SHA-verified rights-approved exact text, share the same topic and have distinct quote hashes. UNKNOWN/noai sources, reversed duplicates, missing quotes and unsupported questions are refused. Saved judgments are immutable through this CLI; review is attested, not independently verified.
+
+Scoring is read-only, using the actual production lexical/identity score plus the same bounded neural tiebreaker. Labels are stored separately and never enter existing v120 neural training, validation or checkpoint selection. Revoked, altered or otherwise stale evidence invalidates the judgment and cannot be counted as accuracy.
+
+These scores are DEVELOPMENT DIAGNOSTICS on already inspected material. They do not establish a fresh blinded evaluation, a new truth-verification system or semantic generalization. A genuinely independent holdout requires additional rights-cleared publishers, an isolated test pack and enough human-graded hard alternatives.
+
+All existing checkpoints, source archives and training manifests remain unchanged.
