@@ -227,9 +227,12 @@ function activityEventRow(event,isNew){
 function displayActivityCounts(){
  const area=$("focus-recent-activity");
  const count=area.querySelectorAll(".focus-event").length;
- text("focus-activity-count",count.toLocaleString()+" loaded · "+
-   Number(activityCursor.total).toLocaleString()+" stored events · full history available");
+ const older=Math.max(0,Number(activityCursor.total)-count);
+ text("focus-activity-count",count.toLocaleString()+" displayed · "+
+   Number(activityCursor.total).toLocaleString()+" stored events · "+
+   (older?older.toLocaleString()+" older available":"entire saved history displayed"));
  $("focus-load-earlier").hidden=!activityCursor.hasOlder;
+ text("focus-load-earlier","Load earlier activity"+(older?" ("+older.toLocaleString()+" older)":""));
  if(count===0){
   const empty=document.createElement("div");empty.className="empty";
   empty.textContent="No recorded worker activity yet. New events will appear automatically.";
@@ -553,11 +556,17 @@ function renderInspector(){
   inspectorKey(stage,"Research frontier",r.pending_frontier_urls||0);
   inspectorKey(stage,"Web search",String(w.search_status||"unknown").replaceAll("_"," "));
   inspectorKey(stage,"Last cycle reason",cy.last_reason||"No completed cycle on current run");
+  inspectorKey(stage,"Idle reason",w.last_cycle_idle_reason||"Not idle from an exhausted queue");
+  const recovery=w.last_archive_recovery||{};
+  inspectorKey(stage,"Recovered candidate links from saved articles",
+   (recovery.new_candidate_urls||0)+" URLs · "+(recovery.source_snapshots_checked||0)+" saved pages scanned · no web search needed");
   if(w.current_url)inspectorExternal(stage,w.current_url,"Current source: "+w.current_url);
   if(!w.process_running)inspectorInfo(stage,"Worker is not running. Saved data and checkpoints remain available.",true);
   else if(age!==null&&age>=30)inspectorInfo(stage,"The OS worker lock is active, but its saved heartbeat is delayed. Check the worker terminal.",true);
+  else if(w.last_cycle_idle_reason==="no_pending_urls_and_search_produced_no_candidates")
+   inspectorInfo(stage,"Research frontier exhausted. No new candidate links were found by search or saved-article link recovery. The worker is alive but cannot fetch or learn until permitted sources become available.",true);
   else if(cy.last_reason==="queue_empty"||cy.last_reason==="source_retry_wait")
-   inspectorInfo(stage,"Worker is idle because no source URL is currently fetchable. A 30-page target does not create URLs. Search discovery, publisher permissions and pending retries affect progress.",true);
+   inspectorInfo(stage,"Worker is idle because no source URL is currently fetchable. The 30-page target is a maximum, not guaranteed work. Search discovery, publisher permissions and pending retries affect progress.",true);
   else inspectorInfo(stage,"The worker has an active process and saved heartbeat. This proves the process is alive—not that the model is conscious or continuously improving.");
   const truth=inspectorSection(root,"Learning evidence — not a simulation");
   inspectorKey(truth,"Research articles read this run",w.pages_read_this_run||0);
@@ -580,6 +589,9 @@ function renderInspector(){
   inspectorInfo(stage,(r.archived_research_records||0)+" saved source records from "+
    (r.independent_publisher_hosts||0)+" hosts. These records show archived research, not automatic model knowledge or training permission.");
   inspectorKey(stage,"Pending URLs",r.pending_frontier_urls||0);
+  const recovery=w.last_archive_recovery||{};
+  inspectorKey(stage,"Additional links recovered from cached HTML",recovery.new_candidate_urls||0);
+  inspectorKey(stage,"Saved article snapshots scanned",recovery.source_snapshots_checked||0);
   inspectorInfo(stage,"Showing the latest "+(r.source_records||[]).length+
    " source records; the full worker event history is available in the main page.");
   const list=r.source_records||[];
@@ -710,6 +722,13 @@ setInterval(refreshInspector,3000); // Reads local persisted evidence only when 
 
 $("send").onclick=send;$("question").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();send()}};
 $("focus-load-earlier").onclick=loadOlderFocusActivity;
+$("focus-recent-activity").addEventListener("scroll",()=>{
+ const feed=$("focus-recent-activity");
+ if(activityCursor.ready&&activityCursor.hasOlder&&
+    feed.scrollTop+feed.clientHeight>=feed.scrollHeight-65){
+  loadOlderFocusActivity(); // Gradually load all saved events on scroll
+ }
+});
 refreshAndCheck();refreshPlan();pollFocusActivity();
 setInterval(refreshAndCheck,2500);
 setInterval(pollFocusActivity,1000); // Fetch new durable events without page refresh
