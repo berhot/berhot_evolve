@@ -723,6 +723,11 @@ def cycle(store, settings, state, pages=3, train_steps=40,
             )
         }
         state["last_sitemap_discovery"]["new_urls_queued"] = queued_sitemap
+        # A sitemap fetch is a real publisher request. Prevent an article
+        # fetch against that same host until the 20-second gap has elapsed.
+        sitemap_host = sitemap.get("host")
+        if sitemap_host and sitemap.get("network_requests", 0):
+            state["_host_last_at"][sitemap_host] = time_fn()
         state["links_queued_this_run"] += queued_sitemap
         _publish(
             store, state, "publisher_sitemap_discovery",
