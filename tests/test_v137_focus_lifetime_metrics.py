@@ -3,7 +3,7 @@ import copy
 import tempfile
 import unittest
 
-from evolve.open_corpus import archive_page
+from evolve.open_corpus import archive_page, normalize_web_text
 from evolve.store import Store
 from evolve.settings import load_config
 from evolve.v118_studio import LearningController
@@ -42,7 +42,7 @@ class LifetimeFocusMetricsTests(unittest.TestCase):
                 self.assertEqual(totals["source_questions"], 4)
                 self.assertEqual(
                     totals["unique_clean_utf8_bytes"],
-                    len(arabic().encode("utf-8")))
+                    len(normalize_web_text(arabic()).encode("utf-8")))
                 self.assertEqual(totals["training_bytes"], 0)
             finally:
                 store.close()
