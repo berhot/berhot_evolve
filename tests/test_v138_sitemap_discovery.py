@@ -281,6 +281,7 @@ class SitemapDiscoveryTests(unittest.TestCase):
             for item in self.store.focus_activity(PROFILE)["events"]))
 
     def test_sitemap_probe_waits_before_article_on_same_host(self):
+        self.state["minimum_host_gap_seconds"] = 20
         clock = [1000.0]
         waits = []
         articles = []
