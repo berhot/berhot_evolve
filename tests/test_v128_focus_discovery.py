@@ -83,7 +83,7 @@ class FocusDiscoveryTests(unittest.TestCase):
                     absent = run_one_search(store, settings, profile, [])
                 self.assertEqual(absent["queries_attempted"], 0)
                 self.assertEqual(absent["url_candidates"], [])
-                for _ in range(6):
+                for _ in range(4):
                     r = run_one_search(store, settings, profile, [],
                                        search_fn=search)
                     self.assertEqual(r["status"], "search_completed")
@@ -96,11 +96,13 @@ class FocusDiscoveryTests(unittest.TestCase):
                         r["url_candidates"])
                 exhausted = run_one_search(
                     store, settings, profile, [], search_fn=search)
-                self.assertEqual(exhausted["status"], "search_daily_limit")
-                self.assertEqual(len(fake_calls), 6)
+                self.assertEqual(exhausted["status"],
+                                 "no_new_search_questions_today")
+                self.assertEqual(len(fake_calls), 4)
                 self.assertEqual(len(set(fake_calls)), 4)
-                # Only four initial queries exist: after exhausting distinct
-                # questions, no more can run on the same day.
+                # No duplicate queries on the same UTC day, even if
+                # unused API budget remains. New source-derived questions
+                # become eligible in subsequent cycles.
             finally:
                 store.close()
 
