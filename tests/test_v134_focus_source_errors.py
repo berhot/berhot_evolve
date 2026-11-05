@@ -103,6 +103,27 @@ class FocusSourceFailureTests(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_unexpected_exception_type_visible_in_saved_activity(self):
+        with tempfile.TemporaryDirectory() as root:
+            store, settings, state = self.setup(root)
+            try:
+                def broken(_url):
+                    raise UnicodeEncodeError("ascii", "ت", 0, 1,
+                                             "ordinal not in range(128)")
+                result = _run_page(
+                    store, settings, state, get_profile(PROFILE),
+                    fetcher=broken, time_fn=lambda: 1000.0)
+                self.assertEqual(result["error_type"], "UnicodeEncodeError")
+                self.assertEqual(state["last_errors"][-1]["error_type"],
+                                 "UnicodeEncodeError")
+                self.assertEqual(store.focus_activity(PROFILE)["events"][-1]
+                                 ["detail"],
+                                 "unexpected_source_exception · UnicodeEncodeError"
+                                 " · not automatically retried")
+                self.assertFalse(result["retry_scheduled"])
+            finally:
+                store.close()
+
     def test_temporary_server_failure_retries_only_after_delay(self):
         with tempfile.TemporaryDirectory() as root:
             store, settings, state = self.setup(root)

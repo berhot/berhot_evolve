@@ -6,7 +6,7 @@ reusable content enters neural training. No logins, evasion, scripts or files.
 """
 from html.parser import HTMLParser
 from .concept_mining import rank_page_concepts
-from urllib.parse import urlsplit, urljoin, urlunsplit, unquote
+from urllib.parse import urlsplit, urljoin, urlunsplit, unquote, quote
 from urllib.robotparser import RobotFileParser
 import hashlib
 import ipaddress
@@ -173,7 +173,14 @@ def fetch_page(url, settings, opener=None):
     rp.parse(rules)
     if not rp.can_fetch(USER_AGENT,url):
         raise WebSourceError('Website disallows automated access to this URL')
-    request=urllib.request.Request(url,headers={'User-Agent':USER_AGENT,'Accept':'text/html'})
+    # Keep readable source URLs in storage/UI, but send a valid ASCII HTTP
+    # request target. urllib does not encode Arabic (or other Unicode) paths.
+    # Preserve existing escapes and RFC 3986 path delimiters to avoid changing
+    # already-encoded URLs or the publisher's resource identity.
+    parts=urlsplit(url)
+    request_url=urlunsplit(parts._replace(
+        path=quote(parts.path,safe="/%:@!$&'()*+,;=")))
+    request=urllib.request.Request(request_url,headers={'User-Agent':USER_AGENT,'Accept':'text/html'})
     try:
         with opener.open(request,timeout=15) as response:
             typ=response.headers.get('Content-Type','')

@@ -620,11 +620,13 @@ def _run_page(store, settings, state, profile, fetcher=None,
             state["_queue"].append(retry_item)
             retry_queued = True
         state["last_errors"] = (state["last_errors"] + [{
-            "url": url, "error": reason,
+            "url": url, "error": reason, "error_type": type(exc).__name__,
             "retry_scheduled": retry_queued,
             "retry_after_seconds": retry_delay if retry_queued else None,
         }])[-10:]
         detail = reason
+        if reason == "unexpected_source_exception":
+            detail += " · " + type(exc).__name__
         if retry_queued:
             detail += " · delayed retry in " + str(retry_delay) + "s"
         else:

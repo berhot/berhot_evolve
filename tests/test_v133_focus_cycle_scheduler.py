@@ -125,6 +125,7 @@ class CycleSchedulingTests(unittest.TestCase):
             store, settings, state = self._context(folder)
             try:
                 # Empty queue returns immediately; a high target is allowed.
+                state["_queue"] = []
                 result = cycle(
                     store, settings, state, pages=50, train_steps=1,
                     fetcher=lambda _: self.fail("queue empty"))
