@@ -173,8 +173,13 @@ def _measure(torch, nn_model, documents, seed):
     return round(sum(losses)/len(losses), 6)
 
 
-def train_if_eligible(store, profile_name, steps=60, seed=31415):
-    """Train once per changed rights-reviewed dataset, never each timer tick."""
+def train_if_eligible(store, profile_name, steps=60, seed=31415,
+                      progress=None):
+    """Train only approved data; optionally emit measured live PyTorch steps.
+
+    progress(completed_steps, target_steps, actual_batch_loss) is invoked
+    only AFTER a real optimizer update, never during skipped training.
+    """
     if not 1 <= int(steps) <= 120:
         raise ValueError("steps must be 1..120")
     check = readiness(store, profile_name)
@@ -233,6 +238,8 @@ def train_if_eligible(store, profile_name, steps=60, seed=31415):
         opt.step()
         actual_steps += 1
         last_loss = float(loss.item())
+        if progress is not None:
+            progress(actual_steps, int(steps), last_loss)
     val = _measure(torch, model, splits["val"], seed + 1000)
     # Evaluate test for diagnostic reporting only, NEVER select on test.
     test = _measure(torch, model, splits["test"], seed + 2000)
