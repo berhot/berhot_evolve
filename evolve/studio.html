@@ -34,6 +34,31 @@ header{display:flex;justify-content:space-between;align-items:center;padding-bot
 .focus-activity-toolbar .btn{padding:6px 11px;font-size:11px}
 
 .focus-source{font-size:12px;word-break:break-all;overflow-wrap:anywhere;max-width:60%}
+body.inspector-open{overflow:hidden}
+.inspector-backdrop{position:fixed;inset:0;background:rgba(4,8,17,.77);backdrop-filter:blur(4px);z-index:100}
+.inspector-backdrop[hidden],.inspector-panel[hidden]{display:none}
+.inspector-panel{position:fixed;top:0;right:0;bottom:0;z-index:101;width:min(760px,100vw);height:100dvh;background:#101827;border-left:1px solid #41516a;box-shadow:-28px 0 70px #0009;display:flex;flex-direction:column;animation:inspector-slide .25s ease-out}
+@keyframes inspector-slide{from{transform:translateX(100%)}to{transform:translateX(0)}}
+.inspector-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:23px 25px 16px;border-bottom:1px solid var(--border)}
+.inspector-header h2{font-size:22px;margin:2px 0 4px}
+.inspector-tabs{display:flex;flex-wrap:wrap;gap:7px;padding:13px 23px;border-bottom:1px solid var(--border)}
+.inspector-tab{border:1px solid #33465f;border-radius:9px;padding:8px 11px;background:#182237;color:#c0ccdc;font-size:12px}
+.inspector-tab.active{background:#283c5b;color:#fff;border-color:#60bfc8}
+.inspector-scroll{flex:1;min-height:0;overflow-y:auto;padding:20px 24px 45px;overscroll-behavior:contain}
+.inspector-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px;margin:14px 0}
+.inspector-card{background:#162337;border:1px solid #30435a;border-radius:12px;padding:14px;overflow-wrap:anywhere}
+.inspector-card strong{display:block;font-size:17px;margin-top:4px}
+.inspector-card .metric-label{margin-bottom:3px}
+.inspector-section{margin:18px 0 0}
+.inspector-section h3{font-size:15px;margin:0 0 9px}
+.inspector-record{padding:13px 0;border-bottom:1px solid #2d3a50;overflow-wrap:anywhere}
+.inspector-record strong{display:block;font-size:13px}
+.inspector-record .small{margin-top:4px}
+.inspector-record a{color:var(--cyan);font-size:12px;word-break:break-all}
+.inspector-note{border:1px solid #43526e;border-radius:10px;background:#182337;padding:12px 14px;color:#c2d2e4;font-size:12px;margin:12px 0;overflow-wrap:anywhere}
+.inspector-note.warn{border-color:#786449;color:#e8c797}
+.inspector-meta{font-size:11px;color:var(--muted);margin:8px 0}
+@media(max-width:560px){.inspector-header{padding:16px}.inspector-tabs{padding:10px;gap:5px}.inspector-scroll{padding:15px}.inspector-tab{padding:6px 8px}.inspector-cards{gap:7px}.inspector-card{padding:10px}}
 
 @media(max-width:850px){.focus-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:500px){.focus-grid{grid-template-columns:1fr 1fr}.focus-tile .metric-number{font-size:20px}}
@@ -67,7 +92,7 @@ footer{color:var(--muted);font-size:11px;text-align:center;margin-top:24px}
 <div class="panel"><span class="metric-icon">↗</span><div class="metric-label">Teaching examples</div><div class="metric-number" id="lessons">—</div><div class="metric-sub"><span id="manual-lessons">—</span> human · <span id="auto-lessons">—</span> self-created reading lessons</div></div>
 </section>
 <section class="panel" aria-label="Saudi history focus learning agent">
-<div class="focus-head"><div><div class="eyebrow">Lifelong focus / Arabic · Saudi history</div><h2>Focus Agent · Learn until I stop</h2></div><span id="focus-state" class="tag focus-state">NOT STARTED</span></div>
+<div class="focus-head"><div><div class="eyebrow">Lifelong focus / Arabic · Saudi history</div><h2>Focus Agent · Learn until I stop</h2></div><div class="controls"><button class="btn primary" id="open-inspector" aria-haspopup="dialog" aria-controls="inspector-panel">Inspect AI Learning ↗</button><span id="focus-state" class="tag focus-state">NOT STARTED</span></div></div>
 <p class="small" style="margin-top:8px">Open-ended local research supervisor: topic-linked articles, policy-gated search, source-specific pacing, robots/access rules and zero automatic training rights. Search providers may be blocked; article discovery and rights reviews are reported separately from neural training.</p>
 <div class="focus-livebar" aria-label="Persistent agent session timer">
   <div><div class="metric-label">Session elapsed · keeps counting after refresh</div><div class="focus-elapsed mono" id="focus-elapsed">00:00:00</div></div>
@@ -146,6 +171,23 @@ footer{color:var(--muted);font-size:11px;text-align:center;margin-top:24px}
 </div>
 </div><footer>BERHOT EVOLVE v1.28 · Experimental neural lab · Local machine only · Saved artifacts remain on your computer</footer>
 </div>
+<div id="inspector-backdrop" class="inspector-backdrop" hidden></div>
+<aside id="inspector-panel" class="inspector-panel" role="dialog" aria-modal="true" aria-labelledby="inspector-title" hidden>
+ <div class="inspector-header">
+  <div><div class="eyebrow">Live evidence / no simulated reasoning</div><h2 id="inspector-title">AI Learning Inspector</h2><p class="small">What EVOLVE actually did, discovered, questioned and trained</p></div>
+  <button id="inspector-close" class="btn" aria-label="Close AI Learning Inspector">✕ Close</button>
+ </div>
+ <div class="inspector-tabs" role="tablist" aria-label="Learning inspector views">
+  <button class="inspector-tab active" id="inspector-tab-overview" data-view="overview" role="tab" aria-selected="true">Overview</button>
+  <button class="inspector-tab" id="inspector-tab-research" data-view="research" role="tab" aria-selected="false">Discoveries</button>
+  <button class="inspector-tab" id="inspector-tab-curiosity" data-view="curiosity" role="tab" aria-selected="false">Questions &amp; Answers</button>
+  <button class="inspector-tab" id="inspector-tab-training" data-view="training" role="tab" aria-selected="false">Neural Training</button>
+ </div>
+ <div id="inspector-scroll" class="inspector-scroll" tabindex="0">
+  <div id="inspector-connection" class="inspector-meta" role="status">Connecting to the local evidence store…</div>
+  <div id="inspector-content"><div class="empty">Loading saved evidence and checkpoint records…</div></div>
+ </div>
+</aside>
 <script>
 "use strict";
 const token=document.querySelector('meta[name="evolve-token"]').content;
@@ -439,6 +481,219 @@ async function refreshAndCheck(){
   catch(err){pending.msg.children[1].textContent="Research finished but checking the result failed: "+err.message}
  }
 }
+function node(tag,className,content){
+ const n=document.createElement(tag);if(className)n.className=className;
+ if(content!==undefined&&content!==null)n.textContent=String(content);
+ return n;
+}
+let inspectorView="overview",inspectorData=null,inspectorBusy=false,inspectorReturnFocus=null;
+function inspectorCard(title,value,detail){
+ const card=node("div","inspector-card");
+ card.append(node("div","metric-label",title),node("strong","",value));
+ if(detail)card.append(node("div","small muted",detail));
+ return card;
+}
+function inspectorSection(root,heading){
+ const section=node("section","inspector-section");
+ section.append(node("h3","",heading));root.append(section);
+ return section;
+}
+function inspectorInfo(parent,message,warning=false){
+ parent.append(node("div","inspector-note"+(warning?" warn":""),message));
+}
+function inspectorKey(parent,name,value){
+ const row=node("div","mline");row.append(node("span","muted",name));
+ row.append(node("strong","",value===null||value===undefined?"—":value));parent.append(row);
+}
+function inspectorExternal(parent,url,label){
+ if(typeof url!=="string")return;
+ try{
+  const parsed=new URL(url);
+  if(parsed.protocol!=="https:")return;
+  const a=node("a","",label||url);a.href=parsed.href;a.target="_blank";a.rel="noopener noreferrer";parent.append(a);
+ }catch(_){}
+}
+function inspectorModel(parent,heading,record){
+ const section=inspectorSection(parent,heading);
+ if(!record){inspectorInfo(section,"No model checkpoint or training attempt is recorded here. This is not evidence of neural learning.");return;}
+ inspectorKey(section,"Optimizer steps",record.steps);
+ inspectorKey(section,"Accepted for use",record.accepted?"Yes — validation improved":"No — validation did not justify promotion");
+ inspectorKey(section,"Validation loss before",record.validation_before);
+ inspectorKey(section,"Validation loss after",record.validation_after);
+ inspectorKey(section,"Held-out test loss (diagnostic only)",record.heldout_test_loss_diagnostic);
+ inspectorKey(section,"Last training-batch loss",record.train_loss_last_batch);
+ inspectorKey(section,"Checkpoint SHA-256",record.sha256||"Not recorded");
+ inspectorKey(section,"Recorded at",record.created_at_utc?dateFmt(record.created_at_utc):"Not recorded");
+ if(Number.isFinite(record.validation_before)&&Number.isFinite(record.validation_after)){
+  const delta=Number(record.validation_before)-Number(record.validation_after);
+  inspectorInfo(section,delta>0?"Measured validation loss decreased by "+delta.toFixed(6)+". This indicates better prediction on the measured validation set, not independent factual reasoning.":"No measured improvement in validation loss.");
+ }
+}
+function renderInspector(){
+ if(!$("inspector-panel")||$("inspector-panel").hidden||!inspectorData)return;
+ const d=inspectorData,w=d.worker||{},r=d.research||{},q=d.curiosity||{},t=d.training||{},cy=d.latest_cycle||{};
+ const main=$("inspector-content"),scroll=$("inspector-scroll"),oldScroll=scroll.scrollTop;
+ const root=document.createDocumentFragment();
+ if(inspectorView==="overview"){
+  const stats=node("div","inspector-cards");
+  const age=w.heartbeat_age_seconds;
+  const live=!!w.process_running&&(age===null||age<30);
+  stats.append(inspectorCard("Worker process",live?"RUNNING":w.process_running?"HEARTBEAT DELAYED":"NOT RUNNING",age==null?"No recorded heartbeat":"Heartbeat "+Math.round(age)+"s ago"));
+  stats.append(inspectorCard("Archived research sources",r.archived_research_records||0,(r.independent_publisher_hosts||0)+" distinct publisher hosts"));
+  stats.append(inspectorCard("Research questions",q.unverified_question_count||0,"Unverified questions, not factual answers"));
+  stats.append(inspectorCard("Neural weights updated this run",t.weights_updated_in_current_run?"YES":"NO",(t.current_run_training_steps||0)+" optimizer steps in this run"));
+  root.append(stats);
+  const stage=inspectorSection(root,"What is EVOLVE doing now?");
+  inspectorKey(stage,"Current phase",String(w.current_phase||"unknown").replaceAll("_"," "));
+  inspectorKey(stage,"Current run",w.run_id||"Not started");
+  inspectorKey(stage,"Cycle progress",(w.last_cycle_attempts||0)+" / "+(w.last_cycle_target||0)+" actual fetch attempts");
+  inspectorKey(stage,"Research frontier",r.pending_frontier_urls||0);
+  inspectorKey(stage,"Web search",String(w.search_status||"unknown").replaceAll("_"," "));
+  inspectorKey(stage,"Last cycle reason",cy.last_reason||"No completed cycle on current run");
+  if(w.current_url)inspectorExternal(stage,w.current_url,"Current source: "+w.current_url);
+  if(!w.process_running)inspectorInfo(stage,"Worker is not running. Saved data and checkpoints remain available.",true);
+  else if(age!==null&&age>=30)inspectorInfo(stage,"The OS worker lock is active, but its saved heartbeat is delayed. Check the worker terminal.",true);
+  else if(cy.last_reason==="queue_empty"||cy.last_reason==="source_retry_wait")
+   inspectorInfo(stage,"Worker is idle because no source URL is currently fetchable. A 30-page target does not create URLs. Search discovery, publisher permissions and pending retries affect progress.",true);
+  else inspectorInfo(stage,"The worker has an active process and saved heartbeat. This proves the process is alive—not that the model is conscious or continuously improving.");
+  const truth=inspectorSection(root,"Learning evidence — not a simulation");
+  inspectorKey(truth,"Research articles read this run",w.pages_read_this_run||0);
+  inspectorKey(truth,"Training status",w.training_status||"not checked");
+  inspectorKey(truth,"Latest accepted focus-model checkpoint",t.last_accepted_checkpoint?.sha256||"NONE");
+  inspectorKey(truth,"Independent verified autonomous historical answers",q.verified_autonomous_answers||0);
+  inspectorInfo(truth,"Reading an article, generating a question and updating neural weights are three different operations. This inspector never counts research text as training.");
+  const abilities=inspectorSection(root,"Implemented capabilities");
+  for(const [name,val] of [
+   ["Collect permitted public research",d.capabilities?.can_research_public_permitted_sources],
+   ["Generate source-derived research questions",d.capabilities?.can_generate_source_derived_questions],
+   ["Flag possible cross-publisher date differences",d.capabilities?.can_flag_potential_publisher_claim_disagreements],
+   ["Independent historical fact verification",d.capabilities?.independently_verifies_historical_claims],
+   ["Fluent Q&A from this Saudi-history focus model",d.capabilities?.focus_model_fluent_qa_implemented],
+   ["Proven general self-directed reasoning",d.capabilities?.self_directed_general_reasoning_proven]
+  ])inspectorKey(abilities,name,val?"Available":"Not implemented/proven");
+ }
+ else if(inspectorView==="research"){
+  const stage=inspectorSection(root,"Saved research discoveries");
+  inspectorInfo(stage,(r.archived_research_records||0)+" saved source records from "+
+   (r.independent_publisher_hosts||0)+" hosts. These records show archived research, not automatic model knowledge or training permission.");
+  inspectorKey(stage,"Pending URLs",r.pending_frontier_urls||0);
+  inspectorInfo(stage,"Showing the latest "+(r.source_records||[]).length+
+   " source records; the full worker event history is available in the main page.");
+  const list=r.source_records||[];
+  if(!list.length)inspectorInfo(stage,"No relevant archived sources yet.");
+  for(const x of list){
+   const entry=node("div","inspector-record");
+   entry.append(node("strong","",x.title||"Untitled"));
+   entry.append(node("div","small muted",String(x.host||"unknown")+" · rights: "+(x.rights||"UNKNOWN")+" · "+(x.candidate_questions||0)+" research questions"));
+   inspectorExternal(entry,x.url,x.url);
+   if(x.noai)entry.append(node("div","small muted","No-AI signal observed — not training eligible"));
+   stage.append(entry);
+  }
+ }
+ else if(inspectorView==="curiosity"){
+  const evidence=inspectorSection(root,"Curiosity: real source-derived questions");
+  inspectorInfo(evidence,(q.unverified_question_count||0)+
+   " questions were derived from archived text. An extracted question is NOT a learned or verified answer.");
+  inspectorKey(evidence,"Autonomously verified historical answers",q.verified_autonomous_answers||0);
+  inspectorKey(evidence,"Independent fact-checker performed",q.automatic_independent_fact_verification_performed?"Yes":"No");
+  for(const x of q.latest_questions||[]){
+   const entry=node("div","inspector-record");
+   entry.append(node("strong","",x.question||"Untitled question"));
+   entry.append(node("div","small muted","Status: unverified · date mentions: "+(x.year_mentions||[]).join(", ")));
+   if(x.source_excerpt)entry.append(node("div","inspector-meta","Evidence excerpt (not verified): "+x.source_excerpt));
+   inspectorExternal(entry,x.source_url,x.source_title||x.source_url);
+   evidence.append(entry);
+  }
+  if(!(q.latest_questions||[]).length)inspectorInfo(evidence,"No source-derived questions are recorded yet.");
+  const compares=inspectorSection(root,"Potential disagreements between sources");
+  const leads=q.potential_cross_publisher_review_leads||[];
+  if(!leads.length)inspectorInfo(compares,"No cross-publisher date review leads yet. This does not prove that all sources agree.");
+  for(const x of leads){
+   const entry=node("div","inspector-record");
+   entry.append(node("strong","",x.subject||"Historical event"));
+   entry.append(node("div","small muted","Year mentions: "+(x.year_mentions||[]).join(", ")+" · independent hosts: "+(x.independent_hosts_observed||0)));
+   entry.append(node("div","inspector-meta","Review lead only; not an automatic correction or verified historical fact."));
+   compares.append(entry);
+  }
+  const answer=inspectorSection(root,"What can it answer by itself?");
+  inspectorInfo(answer,"This Saudi-history focus worker does not yet provide independently verified, fluent historical answers. The main page's approved-source chat and separate neural test modes are different systems. This panel will not fabricate answers to make the AI appear smarter.",true);
+ }
+ else if(inspectorView==="training"){
+  const p=inspectorSection(root,"Real training readiness");
+  inspectorKey(p,"Eligibility",t.eligibility_status||"not checked");
+  inspectorKey(p,"Manually approved articles",t.approved_pages||0);
+  inspectorKey(p,"Independent approved hosts",t.approved_independent_hosts||0);
+  inspectorKey(p,"New approved dataset since last attempt",t.new_training_data_since_last_attempt?"Yes":"No");
+  for(const key of ["train","val","test"]){
+   inspectorKey(p,key.toUpperCase()+" split — unique UTF-8 bytes",
+    (t.bytes_by_split?.[key]||0)+" / "+(t.minimum_bytes_by_split?.[key]||0));
+  }
+  if(t.eligibility_status!=="ready")inspectorInfo(p,"Neural training is blocked until enough independently sourced Arabic text has page-specific rights approval and valid train/validation/test splits. The worker must not self-approve restricted content.",true);
+  const live=inspectorSection(root,"Optimizer / actual current run");
+  inspectorKey(live,"Measured optimizer updates",t.current_run_training_steps||0);
+  inspectorKey(live,"Current training progress",(t.current_optimizer_steps||0)+" / "+(t.current_optimizer_step_target||0));
+  inspectorKey(live,"Current batch loss",t.current_training_loss==null?"No live training":t.current_training_loss);
+  inspectorKey(live,"Accepted weights this run",t.weights_updated_in_current_run?"Recorded training attempt":"None");
+  inspectorModel(root,"Last attempted checkpoint (may be rejected)",t.last_attempt);
+  inspectorModel(root,"Latest accepted checkpoint",t.last_accepted_checkpoint);
+  inspectorInfo(root,"Even a better validation score does not establish understanding, historical truth, a reliable chatbot, or independent reasoning.");
+ }
+ main.replaceChildren(root);
+ scroll.scrollTop=oldScroll;
+}
+async function refreshInspector(){
+ if($("inspector-panel").hidden||inspectorBusy)return;
+ inspectorBusy=true;
+ try{
+  const result=await api("/api/focus/inspector");
+  inspectorData=result;
+  text("inspector-connection","LIVE evidence · updated "+dateFmt(result.checked_at_utc)+" · read-only");
+  renderInspector();
+ }catch(err){
+  text("inspector-connection","Cannot load inspector · "+err.message+" · restart Studio server after pulling main");
+ }finally{inspectorBusy=false}
+}
+function closeInspector(){
+ $("inspector-panel").hidden=true;$("inspector-backdrop").hidden=true;
+ document.body.classList.remove("inspector-open");
+ if(inspectorReturnFocus)inspectorReturnFocus.focus();
+}
+function openInspector(){
+ inspectorReturnFocus=document.activeElement;
+ $("inspector-panel").hidden=false;$("inspector-backdrop").hidden=false;
+ document.body.classList.add("inspector-open");
+ $("inspector-close").focus();
+ refreshInspector();
+}
+$("open-inspector").onclick=openInspector;
+$("inspector-close").onclick=closeInspector;
+$("inspector-backdrop").onclick=closeInspector;
+for(const button of document.querySelectorAll(".inspector-tab")){
+ button.onclick=()=>{
+  inspectorView=button.dataset.view;
+  for(const other of document.querySelectorAll(".inspector-tab")){
+   other.classList.toggle("active",other===button);
+   other.setAttribute("aria-selected",other===button?"true":"false");
+  }
+  $("inspector-scroll").scrollTop=0;
+  renderInspector();
+ };
+}
+document.addEventListener("keydown",e=>{
+ if($("inspector-panel").hidden)return;
+ if(e.key==="Escape"){closeInspector();return;}
+ if(e.key==="Tab"){
+  const nodes=[...$("inspector-panel").querySelectorAll('button:not([disabled]),a[href], [tabindex="0"]')];
+  const focusables=nodes.filter(x=>x.getClientRects().length);
+  if(focusables.length){
+   const first=focusables[0],last=focusables[focusables.length-1];
+   if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
+   else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
+  }
+ }
+});
+setInterval(refreshInspector,3000); // Reads local persisted evidence only when open
+
 $("send").onclick=send;$("question").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();send()}};
 $("focus-load-earlier").onclick=loadOlderFocusActivity;
 refreshAndCheck();refreshPlan();pollFocusActivity();
