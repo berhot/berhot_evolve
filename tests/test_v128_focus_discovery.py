@@ -79,11 +79,20 @@ class FocusDiscoveryTests(unittest.TestCase):
                      "snippet": "Sunny weather."},
                 ]
             try:
-                with patch.dict("os.environ", {"BRAVE_SEARCH_API_KEY": ""}):
-                    absent = run_one_search(store, settings, profile, [])
-                self.assertEqual(absent["queries_attempted"], 0)
-                self.assertEqual(absent["url_candidates"], [])
-                for _ in range(4):
+                with patch("evolve.focus_browser_search.headless_search",
+                           return_value={
+                               "status": "search_completed",
+                               "results": fake_calls and [] or [
+                                   {"url": "https://independent-history.example.org/saudi",
+                                    "title": "تاريخ الدولة السعودية الأولى",
+                                    "snippet": "الدرعية وتاريخ السعودية"}],
+                           }) as browser:
+                    first = run_one_search(store, settings, profile, [])
+                self.assertEqual(first["queries_attempted"], 1)
+                self.assertIn("https://independent-history.example.org/saudi",
+                              first["url_candidates"])
+                self.assertEqual(browser.call_count, 1)
+                for _ in range(3):
                     r = run_one_search(store, settings, profile, [],
                                        search_fn=search)
                     self.assertEqual(r["status"], "search_completed")
@@ -98,8 +107,8 @@ class FocusDiscoveryTests(unittest.TestCase):
                     store, settings, profile, [], search_fn=search)
                 self.assertEqual(exhausted["status"],
                                  "no_new_search_questions_today")
-                self.assertEqual(len(fake_calls), 4)
-                self.assertEqual(len(set(fake_calls)), 4)
+                self.assertEqual(len(fake_calls), 3)
+                self.assertEqual(len(set(fake_calls)), 3)
                 # No duplicate queries on the same UTC day, even if
                 # unused API budget remains. New source-derived questions
                 # become eligible in subsequent cycles.
