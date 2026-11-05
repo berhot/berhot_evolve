@@ -30,8 +30,11 @@ _PROFILES = {
             "https://www.spa.gov.sa/N2519731",
             "https://www.spa.gov.sa/2324675",
             "https://www.spa.gov.sa/w1857788",
+            "https://www.mofa.gov.sa/ar/ksa/Pages/history.aspx",
+            "https://www.mofa.gov.sa/ar/ksa/Pages/foundingday.aspx",
         ),
-        "allowed_hosts": ("saudipedia.com", "www.spa.gov.sa"),
+        "allowed_hosts": (
+            "saudipedia.com", "www.spa.gov.sa", "www.mofa.gov.sa"),
         "policy_urls": (
             "https://saudipedia.com/footer/" + quote("شروط الاستخدام"),
         ),
