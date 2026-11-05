@@ -9,6 +9,7 @@ from evolve.focus_overnight import cycle, init_state
 from evolve.focus_sitemaps import (
     _xml_links, _select_topical, _same_host_https,
     _robots_denies_wildcard, discover_publisher_sitemaps,
+    _fetch_publisher_sitemaps,
 )
 from evolve.settings import load_config
 from evolve.store import Store
@@ -75,6 +76,76 @@ class SitemapDiscoveryTests(unittest.TestCase):
             ["Disallow: /site*"], "/sitemap.xml"))
         self.assertFalse(_robots_denies_wildcard(
             ["Disallow: /api/*"], "/sitemap.xml"))
+
+    def test_language_sitemaps_do_not_starve_arabic_child_index(self):
+        """Regression: Saudipedia advertises root/en/fr/de/ru/ch XMLs."""
+        host = "saudipedia.com"
+        root = "https://" + host
+        robots = (
+            "User-agent: *\\nAllow: /\\nDisallow: /api/\\n"
+            "Sitemap: " + root + "/sitemap.xml\\n"
+            "Sitemap: " + root + "/en/sitemap.xml\\n"
+            "Sitemap: " + root + "/fr/sitemap.xml\\n"
+            "Sitemap: " + root + "/de/sitemap.xml\\n"
+        ).encode()
+        index = (
+            "<sitemapindex><sitemap><loc>" + root +
+            "/en/archive.xml</loc></sitemap>"
+            "<sitemap><loc>" + root +
+            "/ar/history-posts.xml</loc></sitemap></sitemapindex>"
+        ).encode()
+        arabic_article = root + "/الدولة-السعودية-الثانية"
+        documents = {
+            root + "/robots.txt": (robots, "text/plain"),
+            root + "/sitemap.xml": (index, "text/xml"),
+            root + "/ar/history-posts.xml": (
+                ("<urlset><url><loc>" + arabic_article +
+                 "</loc></url></urlset>").encode(), "application/xml"),
+        }
+        requested = []
+        def reader(url, cap):
+            requested.append(url)
+            data, content_type = documents[url]
+            self.assertLessEqual(len(data), cap)
+            return data, content_type
+        result = _fetch_publisher_sitemaps(
+            host, language="ar", document_reader=reader,
+            dns_checker=lambda _: None)
+        self.assertEqual(result["status"], "sitemap_urls_found")
+        self.assertIn(arabic_article, result["url_candidates"])
+        self.assertEqual(result["sitemap_indexes_parsed"], 1)
+        self.assertEqual(result["sitemap_urlsets_parsed"], 1)
+        self.assertEqual(result["sitemap_locations_listed"], 1)
+        self.assertEqual(result["sitemap_documents_checked"], 2)
+        self.assertEqual(result["network_requests"], 3)
+        self.assertTrue(all("/en/" not in url and "/fr/" not in url
+                            for url in requested))
+
+    def test_child_sitemap_robots_denial_stays_blocked(self):
+        host = "saudipedia.com"
+        root = "https://" + host
+        requested = []
+        files = {
+            root + "/robots.txt": (
+                b"User-agent: *\\nDisallow: /ar/\\n"
+                b"Sitemap: https://saudipedia.com/sitemap.xml",
+                "text/plain"),
+            root + "/sitemap.xml": (
+                b"<sitemapindex><sitemap><loc>"
+                b"https://saudipedia.com/ar/history.xml"
+                b"</loc></sitemap></sitemapindex>", "text/xml"),
+        }
+        def reader(url, cap):
+            requested.append(url)
+            return files[url]
+        result = _fetch_publisher_sitemaps(
+            host, document_reader=reader, dns_checker=lambda _: None)
+        self.assertEqual(result["status"],
+                         "sitemap_parsed_but_no_article_urls")
+        self.assertIn("sitemap_disallowed_by_robots",
+                      result["sitemap_failures"])
+        self.assertNotIn(root + "/ar/history.xml", requested)
+        self.assertEqual(result["url_candidates"], [])
 
     def test_sitemap_provider_candidates_are_same_host_and_paced(self):
         now = 50_000
