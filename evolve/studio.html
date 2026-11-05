@@ -16,6 +16,15 @@ header{display:flex;justify-content:space-between;align-items:center;padding-bot
 .hero{padding:33px 0 21px;display:flex;align-items:end;justify-content:space-between;gap:18px}h1{font-size:30px;letter-spacing:-1px;margin:0 0 5px}h2{font-size:16px;margin:0;font-weight:700}p{margin:0;color:var(--muted)}.eyebrow{font-size:11px;letter-spacing:2px;color:var(--cyan);font-weight:700;text-transform:uppercase;margin-bottom:8px}
 .statusnote{background:#172434;border:1px solid #345265;border-radius:12px;padding:11px 14px;color:#a5c6d0;max-width:410px;font-size:12px}
 .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:23px 0}
+.focus-head{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+.focus-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}
+.focus-tile{background:#121e2d;border:1px solid #30485e;padding:15px;border-radius:11px;min-width:0}
+.focus-tile .metric-number{font-size:25px}
+.focus-tag{color:var(--cyan);font-weight:750}
+.focus-state{font-weight:700}
+@media(max-width:850px){.focus-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:500px){.focus-grid{grid-template-columns:1fr 1fr}.focus-tile .metric-number{font-size:20px}}
+
 .panel{background:linear-gradient(160deg,var(--panel),#0f1420);border:1px solid var(--border);border-radius:16px;padding:20px;min-width:0}
 .metric-label{color:var(--muted);font-size:12px;margin-bottom:9px}.metric-number{font-size:32px;font-weight:770;letter-spacing:-1.5px}.metric-sub{color:var(--muted);font-size:11px;margin-top:4px}.metric-icon{float:right;opacity:.7;font-size:20px}
 .layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(340px,1fr);gap:16px;align-items:start}
@@ -43,6 +52,26 @@ footer{color:var(--muted);font-size:11px;text-align:center;margin-top:24px}
 <div class="panel"><span class="metric-icon">✓</span><div class="metric-label">Rights-cleared sources</div><div class="metric-number" id="eligible">—</div><div class="metric-sub"><span id="hosts">—</span> independent source hosts</div></div>
 <div class="panel"><span class="metric-icon">◉</span><div class="metric-label">Trained neural families</div><div class="metric-number" id="families">—</div><div class="metric-sub">SHA-verified checkpoint records</div></div>
 <div class="panel"><span class="metric-icon">↗</span><div class="metric-label">Teaching examples</div><div class="metric-number" id="lessons">—</div><div class="metric-sub"><span id="manual-lessons">—</span> human · <span id="auto-lessons">—</span> self-created reading lessons</div></div>
+</section>
+<section class="panel" aria-label="Saudi history focus learning agent">
+<div class="focus-head"><div><div class="eyebrow">Lifelong focus / Arabic · Saudi history</div><h2>Focus Agent · Learn until I stop</h2></div><span id="focus-state" class="tag focus-state">NOT STARTED</span></div>
+<p class="small" style="margin-top:8px">Continuous local research supervisor. Bounded website access and daily budgets; zero automatic rights grants. The agent may remain idle when there is no permitted new work.</p>
+<div class="focus-grid">
+<div class="focus-tile"><div class="metric-label">Evidence ranker · model parameters</div><div class="metric-number" id="focus-ranker-size">—</div><div class="metric-sub" id="focus-ranker-trained">Checkpoint status</div></div>
+<div class="focus-tile"><div class="metric-label">Arabic byte model · architecture parameters</div><div class="metric-number" id="focus-params">—</div><div class="metric-sub" id="focus-trained">Not trained yet</div></div>
+<div class="focus-tile"><div class="metric-label">New unique Arabic pages · this run</div><div class="metric-number" id="focus-pages">0</div><div class="metric-sub" id="focus-archive">0 archived • 0 duplicates</div></div>
+<div class="focus-tile"><div class="metric-label">Neural training steps · this run</div><div class="metric-number" id="focus-steps">0</div><div class="metric-sub" id="focus-questions">0 research questions (unverified)</div></div>
+</div>
+<div class="mline"><span class="muted">Current focus</span><strong>تاريخ المملكة العربية السعودية</strong></div>
+<div class="mline"><span class="muted">Research progress / UTC daily cap</span><strong id="focus-daily">—</strong></div>
+<div class="mline"><span class="muted">Current training status</span><strong id="focus-training-status">Not checked</strong></div>
+<div class="mline"><span class="muted">Last worker heartbeat</span><strong id="focus-heartbeat">—</strong></div>
+<div class="controls" style="margin-top:14px">
+<button class="btn primary" id="focus-start">Start continuous learning</button>
+<button class="btn danger" id="focus-stop" disabled>Stop learning</button>
+</div>
+<div class="notice" id="focus-notice"></div>
+<p class="small">The model size remains fixed unless its architecture changes. Collected research is not the same as learned neural weights. Requires the Mac to remain awake and the worker process running.</p>
 </section>
 <div class="layout">
 <div class="stack">
@@ -81,15 +110,15 @@ footer{color:var(--muted);font-size:11px;text-align:center;margin-top:24px}
 <section class="panel"><div class="panelhead"><div><div class="eyebrow">Training history</div><h2>Recent activities</h2></div><span class="tag">Latest first</span></div><div id="activity" class="time-line"><div class="empty">No Studio jobs yet. Your earlier v1.17 checkpoints remain available above.</div></div></section>
 <section class="panel"><div class="eyebrow">Understand your AI</div><h2>What BERHOT can and cannot do</h2><div style="margin-top:12px"><div class="mline"><span>Collect &amp; store permitted science text</span><span style="color:var(--good)">✓ Working</span></div><div class="mline"><span>Train neural models after approval</span><span style="color:var(--good)">✓ Working</span></div><div class="mline"><span>Show real training progress</span><span style="color:var(--good)">✓ Working</span></div><div class="mline"><span>Search citations in local articles</span><span style="color:var(--good)">✓ Working</span></div><div class="mline"><span>Chat fluently like ChatGPT</span><span style="color:var(--warn)">Not yet</span></div><div class="mline"><span>Think independently or choose goals</span><span style="color:var(--warn)">Not yet</span></div></div></section>
 </div>
-</div><footer>BERHOT EVOLVE v1.21 · Experimental neural lab · Local machine only · Saved artifacts remain on your computer</footer>
+</div><footer>BERHOT EVOLVE v1.28 · Experimental neural lab · Local machine only · Saved artifacts remain on your computer</footer>
 </div>
 <script>
 "use strict";
 const token=document.querySelector('meta[name="evolve-token"]').content;
 const $=id=>document.getElementById(id);
 let latest=null;let pendingResearch=null;
-const STUDIO_API_VERSION=3;
-const restartMessage="Old Studio backend detected. Close its Terminal with Ctrl+C, then restart: python3 -m evolve studio --port 8787 --interval 60. Refresh this page.";
+const STUDIO_API_VERSION=4;
+const restartMessage="Old Studio backend detected. Stop its terminal server with Ctrl+C, restart: python3 -m evolve studio --port 8787. Reload this page. The separate focus worker can keep running.";
 function compatible(s){return s?.studio_api_version===STUDIO_API_VERSION&&Array.isArray(s.supported_chat_modes)&&s.supported_chat_modes.includes("auto")&&s.supported_chat_modes.includes("grounded");}
 const timeFmt=v=>{if(v==null||!Number.isFinite(Number(v)))return "—";v=Math.max(0,Math.round(Number(v)));return v>=3600?Math.floor(v/3600)+"h "+Math.floor(v%3600/60)+"m":v>=60?Math.floor(v/60)+"m "+(v%60)+"s":v+"s"};
 const dateFmt=s=>s?new Date(s).toLocaleString():"—";
@@ -134,6 +163,25 @@ async function refresh(){
     notify("chat-notice",b.remaining===0?"Research budget exhausted; resets "+dateFmt(b.reset_at_utc)+" (midnight UTC).": "");
  }
  text("clock",dateFmt(s.time_utc));text("pages",s.archived_pages);text("eligible",s.rights_eligible_articles);text("hosts",s.rights_eligible_hosts);
+ const f=s.focus_agent||{},m=s.model_size||{};
+ text("focus-ranker-size",(m.ranker?.architecture_parameters??0).toLocaleString());
+ text("focus-ranker-trained",m.ranker?.checkpoint_recorded?"Accepted ranker · "+(m.ranker.training_steps_recorded??0)+" steps":"Architecture only · not accepted");
+ text("focus-params",(m.saudi_history_arabic?.architecture_parameters??0).toLocaleString());
+ text("focus-trained",m.saudi_history_arabic?.accepted_checkpoint_recorded?
+   "Accepted Arabic checkpoint · "+(m.saudi_history_arabic.accepted_training_steps_recorded??0)+" steps":
+   "Architecture only · no accepted Arabic checkpoint");
+ text("focus-state",(f.status||"NOT STARTED").toUpperCase().replaceAll("_"," "));
+ $("focus-state").className="tag "+(f.process_running?"good":"");
+ text("focus-pages",f.unique_pages_added||0);
+ text("focus-archive",(f.pages_archived||0)+" archived · "+(f.exact_duplicates||0)+" duplicates");
+ text("focus-steps",f.training_steps_this_run||0);
+ text("focus-questions",(f.candidate_questions||0)+" source-derived research questions (unverified)");
+ text("focus-daily",(f.pages_today||0)+" / "+(f.max_pages_per_day||24)+" pages (UTC) · "+(f.pages_attempted||0)+" total attempts");
+ text("focus-training-status",f.training_status||"Not checked");
+ text("focus-heartbeat",dateFmt(f.heartbeat_at_utc));
+ $("focus-start").disabled=!!f.process_running||!compatible(s);
+ $("focus-stop").disabled=!f.process_running||!!f.stop_requested||!compatible(s);
+
  text("families",Object.keys(s.v117_models||{}).length+(s.v118_qa_model?1:0)+(s.v120_grounded_ranker?1:0));
  text("lessons",(s.human_reviewed_qa_examples||0)+(s.source_derived_lessons||0));text("manual-lessons",s.human_reviewed_qa_examples||0);text("auto-lessons",s.source_derived_lessons||0);
  const models=s.v117_models||{};text("charloss",models.char?.val_bits_per_byte??"—");text("bpeloss",models.byte_bpe?.val_bits_per_byte??"—");
@@ -172,6 +220,22 @@ $("crawl").onclick=()=>runJob("crawl",5);
 $("refresh-plan").onclick=refreshPlan;
 $("queue").onclick=async()=>{try{const urls=$("seedurls").value.split(/\n/).map(x=>x.trim()).filter(Boolean);const r=await api("/api/queue",{urls});notify("queue-notice","Queued: "+r.submitted+"; newly added: "+r.new_queue_urls+". Use Crawl queued pages.");$("seedurls").value="";refresh()}catch(err){notify("queue-notice",err.message)}};
 $("teach").onclick=async()=>{try{const r=await api("/api/lesson",{question:$("lesson-q").value,answer:$("lesson-a").value,url:$("lesson-url").value});notify("lesson-notice",r.status==="added"?"Saved reviewed lesson. Total: "+r.total_reviewed_qa:"Lesson already stored.");refresh()}catch(err){notify("lesson-notice",err.message)}};
+$("focus-start").onclick=async()=>{
+ try{const r=await api("/api/focus/start",{});
+ notify("focus-notice",r.status==="launched"?
+ "Started separate local worker (PID "+r.pid+"). It will run until you request Stop; site and daily budgets still apply.":
+ r.status==="already_running"?"Already running.":"Start already requested. Watch the status above.");
+ refresh();
+ }catch(err){notify("focus-notice",err.message)}
+};
+$("focus-stop").onclick=async()=>{
+ if(!window.confirm("Stop the Saudi-history focus worker? Saved research and checkpoints will remain."))return;
+ try{const r=await api("/api/focus/stop",{});
+ notify("focus-notice",r.status==="stop_requested"?
+ "Stop requested for this run. The worker will finish its current bounded step and shut down.":r.message||r.status);
+ refresh();
+ }catch(err){notify("focus-notice",err.message)}
+};
 $("auto-on").onclick=async()=>{try{const r=await api("/api/auto",{enabled:true});notify("auto-notice","Daily bounded autonomous web curiosity enabled (up to 6 requests/day within shared quota). Training rights remain unchanged.");refresh()}catch(err){notify("auto-notice",err.message)}};
 $("auto-off").onclick=async()=>{try{await api("/api/auto",{enabled:false});notify("auto-notice","Automatic checks stopped.");refresh()}catch(err){notify("auto-notice",err.message)}};
 function bubble(speaker,content,mine=false){
