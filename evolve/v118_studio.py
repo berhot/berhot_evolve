@@ -208,8 +208,11 @@ class LearningController:
                         "search_queries_this_run", 0),
                     "cross_publisher_links_queued": focus_run.get(
                         "cross_host_links_queued_this_run", 0),
-                    "brave_search_key_configured": bool(
-                        os.environ.get("BRAVE_SEARCH_API_KEY")),
+                    "keyless_browser_search": True,
+                    "browser_search_provider": focus_run.get(
+                        "browser_search_provider", "duckduckgo"),
+                    "no_fixed_research_quotas": bool(
+                        focus_run.get("no_fixed_quotas", False)),
                     "source_comparison_leads": len(
                         focus_run.get("research_review_leads", [])),
                     "research_only_is_not_neural_training": True,
