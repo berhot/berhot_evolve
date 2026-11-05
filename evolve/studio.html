@@ -410,7 +410,11 @@ async function refresh(){
  const ss=f.last_sitemap_discovery||{};
  text("focus-sitemap-health",(ss.status||"not_attempted").replaceAll("_"," ")+
    (ss.host?" · "+ss.host:"")+
-   " · "+(ss.new_urls_queued||0)+" candidate URLs queued");
+   " · "+(ss.new_urls_queued||0)+" candidate URLs queued"+
+   " · "+(ss.sitemap_indexes_parsed||0)+" XML indexes"+
+   " · "+(ss.sitemap_urlsets_parsed||0)+" URL sets"+
+   " · "+(ss.sitemap_locations_listed||0)+" listed URLs"+
+   ((ss.sitemap_failures||[]).length?" · "+ss.sitemap_failures.join(", "):""));
  text("focus-corrections",(f.source_comparison_leads||0)+" unverified review leads");
  text("focus-heartbeat",dateFmt(f.heartbeat_at_utc));
  $("focus-start").disabled=!!f.process_running||!compatible(s);
@@ -587,6 +591,13 @@ function renderInspector(){
    (sm.status||"not attempted").replaceAll("_"," ")+
    " · "+(sm.host||"no publisher selected")+
    " · "+(sm.new_urls_queued||0)+" candidate URLs queued");
+  inspectorKey(stage,"Sitemap XML parsing",
+   (sm.sitemap_indexes_parsed||0)+" indexes · "+
+   (sm.sitemap_urlsets_parsed||0)+" URL sets · "+
+   (sm.sitemap_locations_listed||0)+" raw URLs");
+  if((sm.sitemap_failures||[]).length)
+   inspectorInfo(stage,"Sitemap restrictions or parsing failures: "+
+    sm.sitemap_failures.join(", "),true);
   if(w.current_url)inspectorExternal(stage,w.current_url,"Current source: "+w.current_url);
   if(!w.process_running)inspectorInfo(stage,"Worker is not running. Saved data and checkpoints remain available.",true);
   else if(age!==null&&age>=30)inspectorInfo(stage,"The OS worker lock is active, but its saved heartbeat is delayed. Check the worker terminal.",true);
@@ -627,6 +638,12 @@ function renderInspector(){
    (sm.status||"not attempted").replaceAll("_"," ")+
    " · "+(sm.host||"none"));
   inspectorKey(stage,"Sitemap article URLs queued",sm.new_urls_queued||0);
+  inspectorKey(stage,"Sitemap XML indexes / URL sets",
+   (sm.sitemap_indexes_parsed||0)+" / "+(sm.sitemap_urlsets_parsed||0));
+  inspectorKey(stage,"Sitemap URLs listed",sm.sitemap_locations_listed||0);
+  inspectorKey(stage,"Topical article candidates",sm.topical_urls_after_filter||0);
+  inspectorKey(stage,"Sitemap documents remain unchecked",
+   sm.sitemap_more_documents_unchecked?"Yes — bounded request window":"No");
   inspectorInfo(stage,"Showing the latest "+(r.source_records||[]).length+
    " source records; the full worker event history is available in the main page.");
   const list=r.source_records||[];
