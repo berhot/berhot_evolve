@@ -53,13 +53,21 @@ def _publish(store, state, phase, *, url=None, event=None, detail=None):
     state["updated_at_utc"] = now
     state["heartbeat_at_utc"] = now
     if event:
-        events = state.setdefault("recent_activity", [])
-        events.append({
+        payload = {
             "at_utc": now,
             "kind": event,
-            "detail": str(detail or "")[:180],
+            "detail": str(detail or "")[:500],
             "url": url,
-        })
+            "phase": phase,
+        }
+        # The full history is in the append-only SQLite event journal.
+        # The small snapshot is retained only for older Studio clients.
+        store.append_focus_activity(
+            state["profile"], state["run_id"], now, event,
+            phase=phase, detail=payload["detail"], url=url,
+        )
+        events = state.setdefault("recent_activity", [])
+        events.append(payload)
         state["recent_activity"] = events[-16:]
     store.put(_KEY + state["profile"], _public_state(state))
 
@@ -113,6 +121,9 @@ def init_state(store, profile_name, extra_urls=None, max_pages=24):
     profile = get_profile(profile_name)
     base = plan(profile_name, extra_urls)
     previous = store.get(_KEY + profile_name) or {}
+    # Preserve any activity still visible from a pre-journal worker before
+    # creating a new run; older evicted events cannot be reconstructed.
+    store.backfill_focus_activity(profile_name, previous)
     now = _utc()
     state = {
         "version": "focus-overnight-1.0",
@@ -432,7 +443,7 @@ def cycle(store, settings, state, pages=3, train_steps=40,
     profile = get_profile(state["profile"])
     observations = store.get(_HISTORY + state["profile"], []) or []
     _publish(store, state, "searching_research_sources",
-             event="search_check")
+             event="search_check", detail="Starting source discovery cycle")
     if stop_requested(store, state["run_id"], state["profile"]):
         search = {"status": "skipped_stop_requested",
                   "queries_attempted": 0, "url_candidates": []}
@@ -459,6 +470,10 @@ def cycle(store, settings, state, pages=3, train_steps=40,
     }
     state["search_queries_this_run"] += search.get("queries_attempted", 0)
     state["search_results_queued_this_run"] += queued_search
+    if queued_search:
+        _publish(store, state, "source_links_discovered",
+                 event="source_links_queued",
+                 detail=str(queued_search) + " search-discovered candidate URLs")
     _publish(store, state, "search_finished", event="search_result",
              detail=(state["search_status"] + " · " + str(queued_search)
                      + " new source URLs" +
@@ -479,6 +494,17 @@ def cycle(store, settings, state, pages=3, train_steps=40,
             outcomes.append(result)
             break
         outcomes.append(result)
+        if result["status"] in (
+                "publisher_pacing_wait", "publisher_daily_quota",
+                "queue_empty", "already_seen", "daily_budget_exhausted",
+                "daily_page_cap_reached", "skipped_archive",
+                "run_cap_reached"):
+            _publish(
+                store, state, "source_request_deferred",
+                event=result["status"], url=result.get("url"),
+                detail=(str(result.get("host") or "") + " " +
+                        str(result.get("retry_after_seconds") or "")).strip(),
+            )
         if (fetcher is None and i < int(pages) - 1 and
                 float(settings.get("crawl_delay_seconds", 2)) > 0):
             sleep_fn(max(2.0, float(settings.get("crawl_delay_seconds", 2))))
@@ -500,13 +526,20 @@ def cycle(store, settings, state, pages=3, train_steps=40,
         state["training_steps_this_run"] = base_steps + step
         state["training_byte_tokens_processed"] = (
             base_tokens + step * BATCH * CONTEXT)
-        _publish(store, state, "training_neural_weights")
+        _publish(
+            store, state, "training_neural_weights",
+            event="neural_optimizer_step",
+            detail=(str(step) + "/" + str(target) +
+                    " · actual optimizer update · loss " +
+                    str(round(float(loss), 6))),
+        )
 
     if stop_requested(store, state["run_id"], state["profile"]):
         training = {"status": "skipped_stop_requested", "steps": 0,
                     "weights_updated": False}
     else:
-        _publish(store, state, "checking_training_eligibility")
+        _publish(store, state, "checking_training_eligibility",
+                 event="training_eligibility_check")
         training = train_if_eligible(
             store, state["profile"], steps=train_steps,
             progress=neural_progress)
@@ -523,6 +556,9 @@ def cycle(store, settings, state, pages=3, train_steps=40,
             base_steps + int(training["steps"]))
         state["training_byte_tokens_processed"] = (
             base_tokens + int(training.get("training_window_bytes_seen", 0)))
+    _publish(store, state, "training_result", event="training_result",
+             detail=(training["status"] + " · " +
+                     str(training.get("reason") or "")[:200]))
     _publish(store, state, "cycle_finished", event="cycle_finished",
              detail=("research · training " + training["status"]))
     state["cycles_completed"] += 1
@@ -713,9 +749,17 @@ def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
                 else:
                     state["status"] = "running"
                 if state["status"] == "idle_waiting_for_allowed_work":
-                    _publish(store, state, "idle_waiting_for_allowed_work")
+                    _publish(
+                        store, state, "idle_waiting_for_allowed_work",
+                        event="worker_idle",
+                        detail="No allowed work this cycle; next interval pending",
+                    )
                 else:
-                    _publish(store, state, "waiting_for_next_cycle")
+                    _publish(
+                        store, state, "waiting_for_next_cycle",
+                        event="worker_waiting_next_cycle",
+                        detail=str(interval_minutes) + "-minute cadence",
+                    )
                 print(json.dumps(result, ensure_ascii=False), flush=True)
                 if not until_stopped and (
                         state["pages_attempted"] >= state["max_pages_this_run"]):
