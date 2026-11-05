@@ -90,6 +90,30 @@ def start_detached(store, project_root, profile=PROFILE):
     """
     if worker_running(store, profile):
         return {"status": "already_running"}
+    # v1.27 used nohup/caffeinate without an OS flock. A PID file from that
+    # legacy worker must not silently permit a second concurrent crawler.
+    # Do NOT terminate any arbitrary process by PID; require operator review.
+    legacy = Path(store.root) / "focus-overnight.pid"
+    if legacy.is_file():
+        try:
+            old_pid = int(legacy.read_text().strip())
+            os.kill(old_pid, 0)
+        except (OSError, ValueError):
+            pass
+        else:
+            inspect = subprocess.run(
+                ["ps", "-p", str(old_pid), "-o", "command="],
+                capture_output=True, text=True, timeout=3, check=False)
+            command = inspect.stdout.strip()
+            if ("focus-overnight" in command or
+                    ("caffeinate" in command and "-m evolve" in command)):
+                return {
+                    "status": "legacy_worker_detected",
+                    "pid": old_pid,
+                    "message": ("An older eight-hour focus worker is still "
+                                "running. Stop it from its terminal or review "
+                                "the PID before starting continuous mode."),
+                }
     root = Path(project_root).resolve()
     logdir = Path(store.root) / "logs"
     logdir.mkdir(parents=True, exist_ok=True)
