@@ -149,8 +149,11 @@ class FocusTrainTests(unittest.TestCase):
                     "https://www.spa.gov.sa/saudi-history-test",
                     "https://www.mofa.gov.sa/ar/ksa/Pages/history-test.aspx",
                 ]
-                for url in urls:
-                    text = arabic_text(size=80)
+                for i, url in enumerate(urls):
+                    # Each publisher must contribute DISTINCT text. Identical
+                    # hashes across hosts are deduplicated before holdout.
+                    text = arabic_text(size=80) + (
+                        " السجل التاريخي المصدر المستقل والتوثيق. " * (i + 1))
                     archive_page(
                         store, url, fake_page(text), text,
                         title="تاريخ المملكة العربية السعودية",
