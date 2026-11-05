@@ -178,6 +178,51 @@ class DefinitionUnitTests(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_noaa_transcript_preface_is_not_the_definition(self):
+        # Actual user-reported NOAA-style flattened transcript label.
+        raw = ("Transcript Estuaries and their surrounding wetlands are "
+               "bodies of water usually found where rivers meet the sea.")
+        quote = raw[len("Transcript "):]
+        self.assertEqual(title_evidence(raw, "estuary"), quote)
+        self.assertIsNone(extract_definition(
+            "Transcript Sun is a star located in our solar system."))
+        self.assertEqual(
+            extract_definition(
+                "Transcript is a written record of spoken language."),
+            "transcript")
+        self.assertEqual(
+            title_evidence(
+                "Transcript is a written record of spoken language.",
+                "transcript"),
+            "Transcript is a written record of spoken language.")
+        # Reject standalone navigation and interrogative headings as before.
+        self.assertIsNone(title_evidence(
+            "Transcript Toggle navigation What is an estuary?",
+            "estuary"))
+        with tempfile.TemporaryDirectory() as root:
+            store = Store(root)
+            try:
+                filler = " ".join(
+                    "Oceanographers measured and described seawater during "
+                    "field studies for observational record " + str(i) + "."
+                    for i in range(90))
+                text = raw + " " + filler
+                archive_page(
+                    store, "https://noaa.example.org/facts/estuary.html",
+                    "<html><body>" + text + "</body></html>",
+                    text, title="What is an estuary?",
+                    declared_license="CC0-1.0",
+                    rights_url="fixture:self-authored")
+                response = grounded_answer(store, "What is an estuary?")
+                self.assertEqual(response["status"], "answered", response)
+                self.assertEqual(response["answer"], quote)
+                self.assertNotIn("Transcript", response["answer"])
+                self.assertIn(response["answer"], text)
+                self.assertEqual(
+                    inventory(store)["source_derived_definitions"], 1)
+            finally:
+                store.close()
+
     def test_title_question_without_real_definition_is_not_training_data(self):
         with tempfile.TemporaryDirectory() as root:
             store = Store(root)

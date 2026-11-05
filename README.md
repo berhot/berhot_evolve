@@ -1692,3 +1692,37 @@ python3 -m evolve model-audit
 
 This is still a tiny source-derived evidence ranker; it has not demonstrated
 general scientific reasoning or outperformance over lexical heuristics.
+
+## v1.23.1 — Preserve exact excerpts while removing transcript page labels
+
+The v1.23 run revealed an additional source-extraction artifact:
+`Transcript Estuaries and their surrounding wetlands are bodies of water ...`.
+This version strips an **exact leading transcript-content label** for
+title-anchored science definitions, so the displayed/cited answer begins with
+`Estuaries` rather than `Transcript`. The chosen answer must still be a
+**contiguous substring of the immutable, SHA-verified archived text**; the
+archive, URL and rights metadata are not rewritten. The subject/identity and
+anti-navigation checks still apply.
+
+The extraction-policy revision changes to `v1231_strict_subject_definition_transcript_clean`,
+so the previous ranker (trained with a different label policy) is disabled
+for new inference until an eligible new model is trained. Old history is
+preserved. There are new offline regression tests using the precise
+NOAA-style flattened transcript prefix.
+
+```bash
+git switch main
+git pull --ff-only origin main
+python3 -m pip install -e '.[train]'
+python3 -m evolve v120-ask --question "What is an estuary?"
+python3 -m evolve v120-readiness
+python3 -m evolve v121-cycle --max-topics 8 --steps 120
+python3 -m evolve v121-report
+python3 -m evolve v120-ask --question "What is an estuary?"
+```
+
+A separate `ocean .` whitespace artifact remains in the immutable NOAA
+source text. This version deliberately leaves exact punctuation untouched
+rather than silently editing quoted evidence. The learned ranker still
+has not outperformed the lexical topic baseline, and the NOAA sample is
+previously inspected rather than a new blind evaluation set.

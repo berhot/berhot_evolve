@@ -21,7 +21,7 @@ from .v119_curiosity import _sentences
 FORMAT = "berhot_evidence_ranker_v120"
 # A new label policy intentionally invalidates older checkpoints whose
 # held-out pairs included navigation text selected from question headings.
-_LABEL_POLICY = "v123_strict_subject_definition_no_navigation"
+_LABEL_POLICY = "v1231_strict_subject_definition_transcript_clean"
 
 _SPLITS = ("train", "val", "test")
 _BAD_START = ("media ", "image ", "photo ", "video ", "see also ", "references",
@@ -84,6 +84,14 @@ def topic_from_question(question):
 def extract_definition(sentence):
     """Explicit sentence-level, *heuristic* definitional claim, not proven fact."""
     s = " ".join(sentence.split()).strip()
+    # A generic "Transcript" label is an audio/video content preface, not
+    # part of the scientific subject in "Transcript Sun is a star".
+    # The subject-specific title fallback handles such excerpts separately.
+    transcript_label = re.match(
+        r"^(?:(?:video|audio)\s+)?transcript\s+", s, re.I)
+    if (transcript_label and
+            s[transcript_label.end():transcript_label.end() + 1].isupper()):
+        return None
     if not 18 <= len(s) <= 320 or not 4 <= len(s.split()) <= 62:
         return None
     lower = s.casefold()
@@ -182,6 +190,18 @@ def title_evidence(text, topic):
     )
     for sentence in _sentences(text)[:48]:
         candidate = " ".join(sentence.split()).strip()
+        # NOAA pages sometimes flatten a transcript heading into the first
+        # sentence: "Transcript Estuaries and their ... are bodies of water".
+        # Return ONLY the exact contiguous definition substring, so the
+        # source quote remains SHA-verifiable against the immutable archive.
+        # Do not strip "Transcript" when it is the actual requested subject.
+        if topic.casefold() not in ("transcript", "video transcript",
+                                    "audio transcript"):
+            prefix = re.match(
+                r"^(?:(?:video|audio)\s+)?transcript\s+",
+                candidate, re.I)
+            if prefix is not None:
+                candidate = candidate[prefix.end():]
         if not 28 <= len(candidate) <= 320 or len(candidate.split()) < 6:
             continue
         if _navigation_fragment(candidate):
