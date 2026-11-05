@@ -163,6 +163,7 @@ def init_state(store, profile_name, extra_urls=None, max_pages=24):
         "search_queries_this_run": 0,
         "search_results_queued_this_run": 0,
         "search_status": "not_checked",
+        "last_search_diagnostic": {},
         "distinct_research_hosts": 0,
         "pending_research_urls": 0,
         "training_runs_with_new_weights": 0,
@@ -425,11 +426,19 @@ def cycle(store, settings, state, pages=3, train_steps=40,
         if _enqueue(state, found):
             queued_search += 1
     state["search_status"] = search.get("status", "unknown")
+    state["last_search_diagnostic"] = {
+        key: search[key] for key in (
+            "status", "provider", "error_type", "error_phase",
+            "hint", "retry_after_seconds",
+        ) if key in search and search[key] is not None
+    }
     state["search_queries_this_run"] += search.get("queries_attempted", 0)
     state["search_results_queued_this_run"] += queued_search
     _publish(store, state, "search_finished", event="search_result",
-             detail=state["search_status"] + " · " + str(queued_search)
-             + " new source URLs")
+             detail=(state["search_status"] + " · " + str(queued_search)
+                     + " new source URLs" +
+                     (" · " + str(search["error_type"])
+                      if search.get("error_type") else "")))
     outcomes = []
     for i in range(int(pages)):
         if stop_requested(store, state["run_id"], state["profile"]):
@@ -523,6 +532,10 @@ def cycle(store, settings, state, pages=3, train_steps=40,
             "status": state["search_status"],
             "queries_attempted": search.get("queries_attempted", 0),
             "urls_queued": queued_search,
+            "error_type": search.get("error_type"),
+            "error_phase": search.get("error_phase"),
+            "retry_after_seconds": search.get("retry_after_seconds"),
+            "hint": search.get("hint"),
         },
         "pending_source_urls": len(state["_queue"]),
         "discovered_publisher_hosts_total":
