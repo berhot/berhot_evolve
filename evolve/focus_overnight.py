@@ -941,7 +941,7 @@ def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
                         "status") in (
                             "queue_empty", "daily_budget_exhausted",
                             "daily_page_cap_reached", "publisher_pacing_wait",
-                            "publisher_daily_quota"):
+                            "source_retry_wait", "publisher_daily_quota"):
                     state["status"] = "idle_waiting_for_allowed_work"
                 else:
                     state["status"] = "running"
