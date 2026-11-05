@@ -541,7 +541,7 @@ function renderInspector(){
   stats.append(inspectorCard("Worker process",live?"RUNNING":w.process_running?"HEARTBEAT DELAYED":"NOT RUNNING",age==null?"No recorded heartbeat":"Heartbeat "+Math.round(age)+"s ago"));
   stats.append(inspectorCard("Archived research sources",r.archived_research_records||0,(r.independent_publisher_hosts||0)+" distinct publisher hosts"));
   stats.append(inspectorCard("Research questions",q.unverified_question_count||0,"Unverified questions, not factual answers"));
-  stats.append(inspectorCard("Neural weights updated this run",t.weights_updated_in_current_run?"YES":"NO",(t.current_run_training_steps||0)+" optimizer steps in this run"));
+  stats.append(inspectorCard("Candidate neural optimizer updates",t.weights_updated_in_current_run?"RECORDED":"NONE",(t.current_run_training_steps||0)+" measured optimizer steps this run; checkpoint may be rejected"));
   root.append(stats);
   const stage=inspectorSection(root,"What is EVOLVE doing now?");
   inspectorKey(stage,"Current phase",String(w.current_phase||"unknown").replaceAll("_"," "));
@@ -605,6 +605,17 @@ function renderInspector(){
    evidence.append(entry);
   }
   if(!(q.latest_questions||[]).length)inspectorInfo(evidence,"No source-derived questions are recorded yet.");
+  const answers=inspectorSection(root,"Recorded answers with separate verification");
+  inspectorKey(answers,"Saved source-linked verifier records",q.separately_recorded_verified_answer_count||0);
+  inspectorInfo(answers,"These are historical records saved by a separate question verifier, if any. They are not answers independently generated or verified by the Saudi-history focus model.");
+  for(const x of q.separately_recorded_verified_answers||[]){
+   const entry=node("div","inspector-record");
+   entry.append(node("strong","",x.question||"Recorded question"));
+   entry.append(node("div","small","Recorded answer: "+(x.answer||"No answer text")));
+   entry.append(node("div","inspector-meta","Verifier: "+(x.verification_method||"unknown")+" · not focus-model output"));
+   inspectorExternal(entry,x.source_url,x.source_url);answers.append(entry);
+  }
+  if(!(q.separately_recorded_verified_answers||[]).length)inspectorInfo(answers,"No separate verifier-backed answers linked to this research corpus are recorded yet.");
   const compares=inspectorSection(root,"Potential disagreements between sources");
   const leads=q.potential_cross_publisher_review_leads||[];
   if(!leads.length)inspectorInfo(compares,"No cross-publisher date review leads yet. This does not prove that all sources agree.");
@@ -633,7 +644,7 @@ function renderInspector(){
   inspectorKey(live,"Measured optimizer updates",t.current_run_training_steps||0);
   inspectorKey(live,"Current training progress",(t.current_optimizer_steps||0)+" / "+(t.current_optimizer_step_target||0));
   inspectorKey(live,"Current batch loss",t.current_training_loss==null?"No live training":t.current_training_loss);
-  inspectorKey(live,"Accepted weights this run",t.weights_updated_in_current_run?"Recorded training attempt":"None");
+  inspectorKey(live,"Optimizer updates in a candidate this run",t.weights_updated_in_current_run?"Yes — acceptance must be checked separately":"None");
   inspectorModel(root,"Last attempted checkpoint (may be rejected)",t.last_attempt);
   inspectorModel(root,"Latest accepted checkpoint",t.last_accepted_checkpoint);
   inspectorInfo(root,"Even a better validation score does not establish understanding, historical truth, a reliable chatbot, or independent reasoning.");
