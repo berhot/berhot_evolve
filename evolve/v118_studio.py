@@ -97,6 +97,10 @@ class LearningController:
             focus_run = store.get("focus_run_" + FOCUS_PROFILE) or {}
             focus_live = worker_running(store, FOCUS_PROFILE)
             focus_observations = store.get("focus_observations_" + FOCUS_PROFILE, []) or []
+            # Pre-index sources from old worker versions remain in SQLite.
+            # Rebuild membership only when a missing/changed snapshot exists.
+            store.backfill_focus_archives(FOCUS_PROFILE, focus_observations)
+            focus_archive_totals = store.focus_archive_totals(FOCUS_PROFILE)
             focus_model = store.get("focus_train_latest_" + FOCUS_PROFILE) or {}
             size = model_size_snapshot(store)
             previous_autonomy = store.get("v121_last_cycle") or {}
@@ -212,7 +216,9 @@ class LearningController:
                         "current_training_loss"),
                     "until_stopped": bool(focus_run.get("until_stopped", False)),
                     "pages_attempted": focus_run.get("pages_attempted", 0),
+                    "source_errors_this_run": focus_run.get("errors", 0),
                     "pages_archived": focus_run.get("pages_archived", 0),
+                    "saved_research_all_runs": focus_archive_totals,
                     "pages_per_cycle_target": focus_run.get(
                         "pages_per_cycle_target", 3),
                     "cycle_interval_minutes": focus_run.get(
@@ -306,6 +312,8 @@ class LearningController:
             profile = FOCUS_PROFILE
             run = store.get("focus_run_" + profile) or {}
             observations = store.get("focus_observations_" + profile, []) or []
+            store.backfill_focus_archives(profile, observations)
+            archive_totals = store.focus_archive_totals(profile)
             frontier = store.get("focus_frontier_" + profile) or {}
             trainable = focus_training_readiness(store, profile)
             attempted = store.get("focus_train_attempted_" + profile) or {}
@@ -481,7 +489,13 @@ class LearningController:
                 },
                 "latest_cycle": latest_cycle,
                 "research": {
-                    "archived_research_records": len(sources),
+                    "archived_research_records": archive_totals["source_urls"],
+                    "unique_clean_utf8_bytes_all_runs":
+                        archive_totals["unique_clean_utf8_bytes"],
+                    "unique_archived_texts_all_runs":
+                        archive_totals["unique_texts"],
+                    "source_questions_all_runs":
+                        archive_totals["source_questions"],
                     "independent_publisher_hosts": len({
                         s["host"] for s in sources if s["host"]}),
                     "source_records": list(reversed(sources[-30:])),
