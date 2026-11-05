@@ -101,6 +101,10 @@ def main(argv=None):
     label.add_argument("--confirm-human-review", action="store_true")
     reviewed = sub.add_parser("v125-score", help="Read-only lexical vs neural results on explicitly human-reviewed development pairs (not blind holdout)")
     reviewed.add_argument("--limit", type=int, default=100)
+    expansion = sub.add_parser("v126-expansion", help="Read-only rights-aware exact-quote evidence expansion review queue")
+    expansion.add_argument("--host", default=None, help="Optional exact source host")
+    expansion.add_argument("--limit", type=int, default=80)
+    expansion.add_argument("--quote-limit", type=int, default=3)
     studio = sub.add_parser("studio", help="Launch local live web dashboard with chat and controlled learning")
     studio.add_argument("--port", type=int, default=8787)
     studio.add_argument("--interval", type=int, default=3600,
@@ -467,6 +471,11 @@ def main(argv=None):
             elif args.command == "v125-score":
                 from .v125_reviewed_benchmark import score_reviewed_pairs
                 result = score_reviewed_pairs(store, limit=args.limit)
+            elif args.command == "v126-expansion":
+                from .v126_expansion import expansion_report
+                result = expansion_report(
+                    store, host=args.host, limit=args.limit,
+                    quote_limit=args.quote_limit)
             elif args.command == "v120-ask":
                 from .v120_grounded import grounded_answer
                 result = grounded_answer(store, args.question)
