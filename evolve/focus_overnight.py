@@ -21,6 +21,7 @@ from .open_corpus import archive_page
 from .v119_curiosity import budget_status
 from .web_discovery import (
     canonical_url, extract, fetch_page, detect_declared_rights,
+    WebSourceError,
 )
 
 _KEY = "focus_run_"
@@ -33,6 +34,49 @@ def _utc():
 
 def _hash(s):
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+def _source_error_policy(exc):
+    """Safe, actionable failure classification; never weaken fetch_page gates.
+
+    Only transient connection/5xx/robots-unverifiable conditions are eligible
+    for bounded, delayed retry. HTTP 4xx denial, robots disallow, redirects,
+    and invalid or non-HTML pages remain terminal for this URL.
+    """
+    if isinstance(exc, WebSourceError):
+        reason = str(exc)
+        if reason.startswith("HTTP "):
+            status = reason[5:].strip().split()[0]
+            if status.isdigit():
+                code = int(status)
+                if code == 429:
+                    return ("http_429_rate_limited", True, 900)
+                if code in (500, 502, 503, 504):
+                    return ("http_" + status + "_server_error", True, 300)
+                if code in (301, 302, 303, 307, 308):
+                    return ("redirect_not_followed", False, 0)
+                if code in (401, 403):
+                    return ("http_" + status + "_access_denied", False, 0)
+                if code in (404, 410):
+                    return ("http_" + status + "_not_found", False, 0)
+                return ("http_" + status, False, 0)
+        if reason.startswith("Website disallows automated access"):
+            return ("robots_disallowed", False, 0)
+        if (reason.startswith("Cannot verify robots.txt") or
+                reason.startswith("Robots availability uncertain")):
+            return ("robots_unverifiable", True, 900)
+        if reason.startswith("Unable to resolve source host"):
+            return ("dns_resolution_failed", True, 600)
+        if reason.startswith("Only HTML pages"):
+            return ("non_html_source", False, 0)
+        if reason.startswith("Page too large"):
+            return ("page_oversized", False, 0)
+        if reason.startswith("Resolved host points to a non-public"):
+            return ("non_public_address_blocked", False, 0)
+        return ("source_policy_or_format_rejected", False, 0)
+    if isinstance(exc, (TimeoutError, OSError)):
+        return ("network_error_or_timeout", True, 300)
+    return ("unexpected_source_exception", False, 0)
 
 
 def _public_state(state):
@@ -52,6 +96,8 @@ def _publish(store, state, phase, *, url=None, event=None, detail=None):
     state["current_url"] = url
     state["updated_at_utc"] = now
     state["heartbeat_at_utc"] = now
+    if "_queue" in state:
+        state["pending_research_urls"] = len(state["_queue"])
     if event:
         payload = {
             "at_utc": now,
@@ -273,17 +319,22 @@ def _run_page(store, settings, state, profile, fetcher=None,
             last = float(state["_host_last_at"].get(candidate_host, 0) or 0)
             gap = max(0, int(state.get("minimum_host_gap_seconds", 20)))
             elapsed = now - last
-            if 0 <= elapsed < gap:
-                remaining = gap - elapsed
+            host_wait = max(0.0, gap - elapsed) if 0 <= elapsed < gap else 0.0
+            retry_wait = max(
+                0.0, float(candidate.get("retry_at", 0) or 0) - now)
+            remaining = max(host_wait, retry_wait)
+            if remaining > 0:
                 state["_queue"].append(candidate)
+                status = ("source_retry_wait" if retry_wait >= host_wait
+                          else "publisher_pacing_wait")
                 if earliest is None or remaining < earliest[0]:
-                    earliest = (remaining, candidate_host)
+                    earliest = (remaining, candidate_host, status)
                 continue
             item = candidate
             break
         if item is None:
             return {
-                "status": "publisher_pacing_wait",
+                "status": earliest[2],
                 "host": earliest[1],
                 "retry_after_seconds": round(earliest[0], 2),
             }
@@ -451,12 +502,36 @@ def _run_page(store, settings, state, profile, fetcher=None,
         }
     except Exception as exc:
         state["errors"] += 1
+        reason, transient, delay = _source_error_policy(exc)
+        count = max(0, int(item.get("retry_count", 0) or 0))
+        retry_queued = False
+        retry_delay = 0
+        if (transient and state.get("no_fixed_quotas") and count < 2
+                and len(state["_queue"]) < 500):
+            retry_delay = min(3600, delay * (2 ** count))
+            retry_item = dict(item, retry_count=count + 1,
+                              retry_at=time_fn() + retry_delay)
+            state["_seen"].discard(url)
+            state["_queue"].append(retry_item)
+            retry_queued = True
         state["last_errors"] = (state["last_errors"] + [{
-            "url": url, "error": str(exc)[:250]}])[-10:]
+            "url": url, "error": reason,
+            "retry_scheduled": retry_queued,
+            "retry_after_seconds": retry_delay if retry_queued else None,
+        }])[-10:]
+        detail = reason
+        if retry_queued:
+            detail += " · delayed retry in " + str(retry_delay) + "s"
+        else:
+            detail += " · not automatically retried"
         _publish(store, state, "source_failed", url=url,
-                 event="source_error", detail=type(exc).__name__)
-        return {"status": "error", "url": url,
-                "error": type(exc).__name__ + ": " + str(exc)[:220]}
+                 event="source_error", detail=detail)
+        return {
+            "status": "error", "url": url,
+            "error": reason, "error_type": type(exc).__name__,
+            "retry_scheduled": retry_queued,
+            "retry_after_seconds": retry_delay if retry_queued else None,
+        }
 
 
 def cycle(store, settings, state, pages=3, train_steps=40,
@@ -530,6 +605,18 @@ def cycle(store, settings, state, pages=3, train_steps=40,
         if status in (
                 "queue_empty", "daily_budget_exhausted",
                 "daily_page_cap_reached", "run_cap_reached"):
+            outcomes.append(result)
+            break
+        if status == "source_retry_wait":
+            _publish(
+                store, state, "waiting_for_source_retry",
+                event="source_retry_wait", detail=(
+                    str(result.get("host") or "") + " · " +
+                    str(result.get("retry_after_seconds", 0)) +
+                    "s until an eligible temporary-failure retry"),
+            )
+            # Long connection backoffs should yield to the normal cycle
+            # cadence, rather than holding the worker inside one cycle.
             outcomes.append(result)
             break
         if status == "publisher_pacing_wait":
