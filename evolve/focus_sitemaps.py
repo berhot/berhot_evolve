@@ -21,6 +21,7 @@ from .web_discovery import (
 _MAX_XML_BYTES = 5_000_000
 _MAX_ROBOTS_BYTES = 250_000
 _HOST_GAP_SECONDS = 6 * 3600
+_SITEMAP_SCAN_VERSION = 2  # One fresh scan after correcting locale/index traversal.
 _SKIP_PATHS = ("tag/", "tags/", "category/", "categories/", "search/",
                "privacy/", "terms/", "footer/", "login/")
 
@@ -299,9 +300,11 @@ def discover_publisher_sitemaps(store, profile, observations, *,
         if host and host not in hosts:
             hosts.append(host)
     due = [
-        host for host in hosts if now -
-        float((history.get(host) or {}).get("checked_at", 0)) >=
-        _HOST_GAP_SECONDS
+        host for host in hosts
+        if ((history.get(host) or {}).get("scan_version") !=
+            _SITEMAP_SCAN_VERSION or
+            now - float((history.get(host) or {}).get("checked_at", 0)) >=
+            _HOST_GAP_SECONDS)
     ]
     if not due:
         soonest = min(
@@ -317,7 +320,8 @@ def discover_publisher_sitemaps(store, profile, observations, *,
         }
     host = due[0]
     # Persist the probe attempt even if it fails, preventing request loops.
-    history[host] = {"checked_at": now, "status": "attempting"}
+    history[host] = {"checked_at": now, "status": "attempting",
+                     "scan_version": _SITEMAP_SCAN_VERSION}
     store.put(key, history)
     try:
         result = (sitemap_fn(host) if sitemap_fn is not None
@@ -343,6 +347,7 @@ def discover_publisher_sitemaps(store, profile, observations, *,
     history[host] = {
         "checked_at": now, "status": result.get("status", "unknown"),
         "candidate_count": len(unseen),
+        "scan_version": _SITEMAP_SCAN_VERSION,
     }
     store.put(key, history)
     count = int(result.get("network_requests", 0))
