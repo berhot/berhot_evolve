@@ -163,18 +163,38 @@ def discover_search_urls(store, profile, observations, *, search_fn=None,
                     int(_MIN_GAP_BETWEEN_OPEN_ENDED_SEARCHES_SEC - elapsed),
                 "queries_attempted": 0, "url_candidates": [],
             }
-    done = set(store.get("focus_search_done_" + day, []) or [])
+    # Only successful browser searches count as done. Earlier versions
+    # incorrectly recorded failures as completed queries and could leave an
+    # otherwise healthy worker idle with no new sources for the entire day.
+    done = set(store.get("focus_search_success_" + day, []) or [])
     queries = _queries_from_observations(profile, observations)
     historical = store.get("focus_search_history_" + profile["name_ar"]) or {}
-    eligible = [
-        (historical.get(hashlib.sha256(q.encode("utf-8")).hexdigest(), ""),
-         i, q)
-        for i, q in enumerate(queries)
-        if hashlib.sha256(q.encode("utf-8")).hexdigest() not in done
-    ]
-    eligible.sort(key=lambda triple: (triple[0], triple[1]))
-    selected = eligible[0][2] if eligible else None
+    failures = store.get("focus_search_failures_" + profile["name_ar"]) or {}
+    now = time.time()
+    eligible, retry_times = [], []
+    for i, query in enumerate(queries):
+        query_hash = hashlib.sha256(query.encode("utf-8")).hexdigest()
+        if query_hash in done:
+            continue
+        prior_failure = failures.get(query_hash) or {}
+        retry_at = float(prior_failure.get("retry_at", 0) or 0)
+        if retry_at > now:
+            retry_times.append(retry_at)
+            continue
+        eligible.append((
+            historical.get(query_hash, ""),
+            float(prior_failure.get("last_attempt_at", 0) or 0),
+            i, query,
+        ))
+    eligible.sort(key=lambda candidate: candidate[:3])
+    selected = eligible[0][3] if eligible else None
     if not selected:
+        if retry_times:
+            return {
+                "status": "search_retry_wait",
+                "retry_after_seconds": max(1, int(min(retry_times) - now)),
+                "queries_attempted": 0, "url_candidates": [],
+            }
         return {"status": "no_new_search_questions_today",
                 "queries_attempted": 0, "url_candidates": []}
     return {
@@ -204,20 +224,36 @@ def run_one_search(store, settings, profile, observations,
             used >= int(settings.get("daily_request_budget", 50))):
         return {"status": "shared_network_daily_budget_exhausted",
                 "queries_attempted": 0, "url_candidates": []}
-    # Account for the request before accessing the search webpage. The
-    # open-ended learner has NO request-count stop; server restrictions apply.
-    done_key = "focus_search_done_" + day
-    done = store.get(done_key, []) or []
+    # Count the attempted request, but do NOT claim the query was completed
+    # until the search backend actually succeeded.
     store.put(shared_key, used + 1)
     store.put("focus_search_used_" + day,
               int(store.get("focus_search_used_" + day, 0) or 0) + 1)
-    store.put(done_key, (done + [planned["query_hash"]])[-5000:])
-    history_key = "focus_search_history_" + profile["name_ar"]
-    history = store.get(history_key) or {}
-    history[planned["query_hash"]] = day
-    store.put(history_key, history)
     if open_ended:
         store.put("focus_browser_search_last_at", time.time())
+
+    failure_key = "focus_search_failures_" + profile["name_ar"]
+
+    def fail(status, **details):
+        failures = store.get(failure_key) or {}
+        previous = failures.get(planned["query_hash"]) or {}
+        count = int(previous.get("count", 0) or 0) + 1
+        # Avoid hammering an unavailable browser or search provider;
+        # retain the query for a later retry rather than marking it done.
+        retry_delay = min(3600, 300 * (2 ** min(count - 1, 4)))
+        now = time.time()
+        failures[planned["query_hash"]] = {
+            "count": count,
+            "last_attempt_at": now,
+            "retry_at": now + retry_delay,
+        }
+        store.put(failure_key, failures)
+        return {
+            "status": status, "queries_attempted": 1,
+            "provider": provider, "retry_after_seconds": retry_delay,
+            "url_candidates": [], **details,
+        }
+
     try:
         if search_fn is not None:
             raw_result = search_fn(planned["query"])
@@ -226,19 +262,28 @@ def run_one_search(store, settings, profile, observations,
             from .focus_browser_search import headless_search
             result = headless_search(planned["query"], provider=provider)
     except Exception as exc:
-        return {
-            "status": "search_failed", "queries_attempted": 1,
-            "error_type": type(exc).__name__,
-            "url_candidates": [],
-        }
+        return fail("search_failed", error_type=type(exc).__name__)
+
     if result.get("status") not in ("search_completed", "search_no_results"):
-        return {
-            "status": result.get("status", "search_failed"),
-            "queries_attempted": 1,
-            "provider": provider,
-            "hint": result.get("hint"),
-            "url_candidates": [],
-        }
+        return fail(
+            result.get("status", "search_failed"),
+            error_type=result.get("error_type"),
+            error_phase=result.get("error_phase"),
+            hint=result.get("hint"),
+        )
+
+    success_key = "focus_search_success_" + day
+    done = store.get(success_key, []) or []
+    store.put(success_key, (done + [planned["query_hash"]])[-5000:])
+    history_key = "focus_search_history_" + profile["name_ar"]
+    history = store.get(history_key) or {}
+    history[planned["query_hash"]] = day
+    store.put(history_key, history)
+    failures = store.get(failure_key) or {}
+    if planned["query_hash"] in failures:
+        failures.pop(planned["query_hash"], None)
+        store.put(failure_key, failures)
+
     candidates = []
     for item in result.get("results", [])[:80]:
         if not isinstance(item, dict):
