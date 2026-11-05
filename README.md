@@ -1726,3 +1726,47 @@ source text. This version deliberately leaves exact punctuation untouched
 rather than silently editing quoted evidence. The learned ranker still
 has not outperformed the lexical topic baseline, and the NOAA sample is
 previously inspected rather than a new blind evaluation set.
+
+## EVOLVE v1.24 — Diagnose whether the neural ranker actually had a choice
+
+The prior `v120-ask` response printed `neural_ranker_used: true` whenever an
+accepted PyTorch checkpoint was loaded—even when there was only ONE supported
+definition for the question. A one-candidate lookup is not a neural ranking
+experiment. Starting in v1.24 the output distinguishes:
+
+- `ranker_checkpoint_loaded`: the saved model is valid and loaded;
+- `candidate_count`: eligible source quotations for this exact topic;
+- `neural_ranker_used`: model compared **two or more** candidates;
+- `neural_decision_changed_top_quote`: learned tiebreaker selected a
+  different first quote than the lexical/identity heuristic.
+
+This is a correction to metadata reporting, not evidence of new intelligence.
+Source answers are still copied as exact source text; no fabricated free-form
+text or source rights approval occurs.
+
+### Run a read-only diagnostic on the existing SQLite corpus
+
+```bash
+python3 -m evolve v124-eval
+python3 -m evolve v124-eval --limit 50
+python3 -m evolve v120-ask --question "What is an estuary?"
+python3 -m evolve v120-ask --question "What is a current?"
+```
+
+`v124-eval` reports how many topics have only one eligible quotation,
+which topics have competing distinct quotations, how often a neural checkpoint
+really compares eligible candidates, whether the neural top result differs
+from the lexical baseline, and whether every cited quote remains an exact
+SHA-verified substring of the approved archive. It also probes definition
+paraphrases and abstention, explicitly marking that these are **syntactic
+variants and trivial missing-inventory tests, NOT externally human-graded
+answer accuracy, blinded semantic generalization, or calibrated confidence**.
+
+The previous 4/4 independent-source test compared easy different-topic
+negatives and has been inspected during debugging; it cannot justify
+claims of better semantic performance. A future true hard-negative benchmark
+requires many distinct, rights-reviewed sources and human-checked labels,
+locked before model training or tuning.
+
+The autonomous topic queue also rejects generic `facts` and `flags`
+navigation-derived words without changing already saved research.

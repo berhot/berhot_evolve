@@ -104,6 +104,8 @@ class AutonomyTests(unittest.TestCase):
     def test_curiosity_question_quality_and_plural_framing(self):
         self.assertIsNone(question_for_topic("nasa"))
         self.assertIsNone(question_for_topic("natural"))
+        self.assertIsNone(question_for_topic("facts"))
+        self.assertIsNone(question_for_topic("flags"))
         self.assertEqual(question_for_topic("gas"), "What is gas?")
         self.assertEqual(question_for_topic("greenhouse"), "What is greenhouse?")
         self.assertEqual(question_for_topic("continents"), "What are continents?")
