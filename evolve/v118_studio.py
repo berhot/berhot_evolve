@@ -211,6 +211,16 @@ class LearningController:
                     "until_stopped": bool(focus_run.get("until_stopped", False)),
                     "pages_attempted": focus_run.get("pages_attempted", 0),
                     "pages_archived": focus_run.get("pages_archived", 0),
+                    "pages_per_cycle_target": focus_run.get(
+                        "pages_per_cycle_target", 3),
+                    "cycle_interval_minutes": focus_run.get(
+                        "cycle_interval_minutes", 15),
+                    "last_cycle_pages_attempted": focus_run.get(
+                        "last_cycle_pages_attempted", 0),
+                    "last_cycle_page_target": focus_run.get(
+                        "last_cycle_page_target", 0),
+                    "last_cycle_pacing_waits": focus_run.get(
+                        "last_cycle_pacing_waits", 0),
                     "unique_pages_added": focus_run.get("new_unique_pages", 0),
                     "exact_duplicates": focus_run.get("exact_duplicate_pages", 0),
                     "pages_today": focus_run.get("pages_attempted_today", 0),
