@@ -2112,3 +2112,66 @@ stay research-only, and training remains prohibited until each article's rights
 and the model's publisher-separated validation requirements are satisfied.
 No automatic historical truth certification or model-parameter growth is
 claimed. A social media discovery subsystem is not included in v1.29.
+
+
+## EVOLVE v1.30 — Live Study Session Monitor in Studio
+
+The **Focus Agent · Learn until I stop** panel in
+`http://127.0.0.1:8787/` now reconnects to the independent local process on
+every refresh. Closing/reloading the tab never starts, cancels, resets or
+restarts the focus worker. The operator's **Stop learning** button or
+`python3 -m evolve focus-stop --profile saudi-history-ar` requests the
+actual process to stop. Mac sleep/shutdown/crash can still suspend or
+terminate the local worker.
+
+The dashboard displays:
+
+- **Live session elapsed timer (HH:MM:SS)** from the original server-saved
+  `started_at_utc`. It updates every second in the browser and shows the
+  final elapsed time after the worker ends. It does not count from page load.
+- **Current operation** (searching, reading a URL, extracting text,
+  checking rights/relevance, training weights, idle, or stopped), plus a
+  timestamped rolling log of recent actual worker events.
+- **Pages successfully read** and actual raw HTML byte count received.
+- **Extracted UTF-8 byte-token equivalents** (each UTF-8 byte is one
+  potential token ID for the experimental byte-level GRU), alongside
+  characters and whitespace-delimited words. These counts include research
+  excerpts before rights and factual review. They are **not JSM BPE tokens,
+  training tokens, or an estimate of knowledge gained**.
+- **Unique archived text byte tokens**, counted once for each new exact-SHA
+  clean source text (not every duplicate).
+- **Actual training byte tokens processed**, live PyTorch optimizer step
+  count and last measured batch loss. These counters advance only after
+  real training steps; with insufficient rights-approved publisher data,
+  they correctly remain zero.
+- Current research host, exact URL, pending source queue and existing
+  source-research counts, independent of client refreshes.
+
+Progress is durably written to the existing SQLite store after article reads,
+source decisions and optimizer steps. No artificial animation is used for
+the counters. A stalled network request may temporarily leave the same
+'reading' URL displayed until it completes or errors; the monitor does
+not fabricate progress while waiting.
+
+### Upgrade your Mac's running Studio
+
+```bash
+cd ~/Desktop/berhot_evolve
+git switch main
+git fetch origin
+git merge --ff-only origin/main
+python3 -m pip install -e '.[train,browser]'
+python3 -m evolve studio --port 8787
+```
+
+Stop the old Studio server using Ctrl+C before starting the updated server
+on the same port. **Stopping/restarting Studio does not stop an already
+detached focus worker.** If a focus worker from v1.29 is running, it will
+keep running with its older instrumentation until you intentionally stop
+that worker and start a new v1.30 worker; a browser refresh cannot upgrade
+the code inside an already-running Python process.
+
+The Studio still requires a local Mac that is awake and able to access
+permitted websites. Browser results remain discovery hints, source reuse
+rights are never granted automatically, and exact text ingestion is not
+a guarantee of historical factual correctness or model learning.
