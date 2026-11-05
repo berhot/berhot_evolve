@@ -20,7 +20,7 @@ from .v118_core import _approved_text
 from .v119_curiosity import research as research_topic, budget_status
 from .v120_grounded import (
     _inventory, grounded_answer, readiness, topic_from_question,
-    title_question, train_ranker,
+    title_question, train_ranker, _LABEL_POLICY,
 )
 
 VERSION = "berhot-autonomous-curiosity-v121"
@@ -111,7 +111,12 @@ def _source_revision(store):
         "SELECT url,sha256,rights_status,noai FROM web_corpus_sources "
         "WHERE noai=0 AND rights_status IN ('CC0-1.0','PUBLIC-DOMAIN') "
         "ORDER BY url").fetchall()
-    return _hash(_canonical([list(row) for row in rows]))
+    # Include the extraction policy in the revision so a stricter policy
+    # forces retraining even when source URLs and manual rights stay fixed.
+    return _hash(_canonical({
+        "label_policy": _LABEL_POLICY,
+        "sources": [list(row) for row in rows],
+    }))
 
 
 def _topic_ok(raw):
