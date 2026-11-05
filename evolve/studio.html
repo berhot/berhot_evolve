@@ -55,7 +55,7 @@ footer{color:var(--muted);font-size:11px;text-align:center;margin-top:24px}
 </section>
 <section class="panel" aria-label="Saudi history focus learning agent">
 <div class="focus-head"><div><div class="eyebrow">Lifelong focus / Arabic · Saudi history</div><h2>Focus Agent · Learn until I stop</h2></div><span id="focus-state" class="tag focus-state">NOT STARTED</span></div>
-<p class="small" style="margin-top:8px">Continuous local research supervisor. Bounded website access and daily budgets; zero automatic rights grants. The agent may remain idle when there is no permitted new work.</p>
+<p class="small" style="margin-top:8px">Open-ended local research supervisor: no fixed page or search stop counts. Keyless headless browser discovery, source-specific pacing, robots/access rules and zero automatic training rights. It may remain idle when no permitted work is available.</p>
 <div class="focus-grid">
 <div class="focus-tile"><div class="metric-label">Evidence ranker · model parameters</div><div class="metric-number" id="focus-ranker-size">—</div><div class="metric-sub" id="focus-ranker-trained">Checkpoint status</div></div>
 <div class="focus-tile"><div class="metric-label">Arabic byte model · architecture parameters</div><div class="metric-number" id="focus-params">—</div><div class="metric-sub" id="focus-trained">Not trained yet</div></div>
@@ -74,7 +74,7 @@ footer{color:var(--muted);font-size:11px;text-align:center;margin-top:24px}
 <button class="btn danger" id="focus-stop" disabled>Stop learning</button>
 </div>
 <div class="notice" id="focus-notice"></div>
-<p class="small">The model size remains fixed unless its architecture changes. Collected research is not the same as learned neural weights. Requires the Mac to remain awake and the worker process running.</p>
+<p class="small">No API key or visible browser needed; optional Playwright + Chromium must be installed. Google/Bing automated results are skipped while disallowed by their policies. No CAPTCHA bypass. The Mac must remain awake. Model parameters stay fixed as articles accumulate.</p>
 </section>
 <div class="layout">
 <div class="stack">
@@ -179,10 +179,12 @@ async function refresh(){
  text("focus-archive",(f.pages_archived||0)+" archived · "+(f.exact_duplicates||0)+" duplicates");
  text("focus-steps",f.training_steps_this_run||0);
  text("focus-questions",(f.candidate_questions||0)+" source-derived research questions (unverified)");
- text("focus-daily",(f.pages_today||0)+" / "+(f.max_pages_per_day||24)+" pages (UTC) · "+(f.pages_attempted||0)+" total attempts");
+ text("focus-daily",f.no_fixed_research_quotas?
+   (f.pages_today||0)+" pages today · no fixed daily count · "+(f.pages_attempted||0)+" total attempts":
+   (f.pages_today||0)+" / "+(f.max_pages_per_day||24)+" pages (UTC) · "+(f.pages_attempted||0)+" total attempts");
  text("focus-training-status",f.training_status||"Not checked");
  text("focus-discovery",(f.distinct_research_hosts||0)+" publishers · "+(f.pending_research_urls||0)+" pending URLs");
- text("focus-search",(f.cross_publisher_links_queued||0)+" external links · "+(f.search_queries_this_run||0)+" web searches"+(f.brave_search_key_configured?"":" · search API not configured"));
+ text("focus-search",(f.cross_publisher_links_queued||0)+" external links · "+(f.search_queries_this_run||0)+" keyless browser searches · "+(f.browser_search_provider||"duckduckgo"));
  text("focus-corrections",(f.source_comparison_leads||0)+" unverified review leads");
  text("focus-heartbeat",dateFmt(f.heartbeat_at_utc));
  $("focus-start").disabled=!!f.process_running||!compatible(s);
@@ -229,7 +231,7 @@ $("teach").onclick=async()=>{try{const r=await api("/api/lesson",{question:$("le
 $("focus-start").onclick=async()=>{
  try{const r=await api("/api/focus/start",{});
  notify("focus-notice",r.status==="launched"?
- "Started separate local worker (PID "+r.pid+"). It will run until you request Stop; site and daily budgets still apply.":
+ "Started local worker (PID "+r.pid+"). It runs until you request Stop; no fixed page limit, but robots and host pacing still apply.":
  r.status==="already_running"?"Already running.":"Start already requested. Watch the status above.");
  refresh();
  }catch(err){notify("focus-notice",err.message)}
