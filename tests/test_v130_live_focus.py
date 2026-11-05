@@ -30,6 +30,14 @@ class LiveDashboardTests(unittest.TestCase):
                     "finished_at_utc": None,
                     "heartbeat_at_utc": "2026-11-05T01:45:00+00:00",
                     "status": "running",
+                    "search_status": "browser_search_unavailable",
+                    "last_search_diagnostic": {
+                        "status": "browser_search_unavailable",
+                        "provider": "duckduckgo",
+                        "error_phase": "submitting_query",
+                        "error_type": "TimeoutError",
+                        "retry_after_seconds": 300,
+                    },
                     "current_phase": "reading_article",
                     "current_url": "https://example.org/saudi-history",
                     "pages_read": 5,
@@ -60,6 +68,12 @@ class LiveDashboardTests(unittest.TestCase):
                     self.assertEqual(f["text_utf8_byte_tokens_extracted"], 8000)
                     self.assertEqual(f["training_byte_tokens_processed"], 0)
                     self.assertEqual(f["current_phase"], "reading_article")
+                    self.assertEqual(f["search_status"],
+                                     "browser_search_unavailable")
+                    self.assertEqual(f["search_diagnostic"]["error_phase"],
+                                     "submitting_query")
+                    self.assertEqual(f["search_diagnostic"]["error_type"],
+                                     "TimeoutError")
                     self.assertEqual(len(f["recent_activity"]), 1)
                 self.assertTrue(worker_running(store, "saudi-history-ar"))
                 # Studio teardown is unrelated to the separate worker lock.
@@ -83,6 +97,7 @@ class LiveDashboardTests(unittest.TestCase):
             'id="focus-read-pages"', 'id="focus-extracted-tokens"',
             'id="focus-unique-tokens"', 'id="focus-trained-tokens"',
             'id="focus-current-url"', 'id="focus-recent-activity"',
+            'id="focus-search-health"', 'f.search_diagnostic',
             'id="focus-start"', 'id="focus-stop"',
             'setInterval(focusTimer,1000)',
             'f.started_at_utc', 'f.finished_at_utc',
