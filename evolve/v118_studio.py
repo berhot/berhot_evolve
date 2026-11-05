@@ -586,7 +586,7 @@ class LearningController:
 
 def _handler(controller, token, origin):
     class StudioHandler(BaseHTTPRequestHandler):
-        server_version = "BERHOT-Studio/1.28"
+        server_version = "BERHOT-Studio/1.30"
         def _headers(self, code, content_type):
             self.send_response(code)
             self.send_header("Content-Type", content_type)
@@ -697,7 +697,7 @@ def serve(settings, port=8787, interval=3600):
             ) from exc
         raise
     print(f"BERHOT Learning Studio: {origin}", flush=True)
-    print("Backend 1.28.0 / API 4; focus agent can run until manually stopped.", flush=True)
+    print("Backend 1.30.0 / API 4; live focus telemetry; refresh never stops the independent worker.", flush=True)
     print("Local-only. Press Ctrl+C to stop; automatic training runs only while Studio remains open.", flush=True)
     try:
         server.serve_forever(poll_interval=0.25)
