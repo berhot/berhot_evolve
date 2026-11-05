@@ -10,6 +10,7 @@ from threading import RLock, Thread, Event
 import html
 import errno
 import json
+import os
 import math
 import hashlib
 import secrets
@@ -198,6 +199,19 @@ class LearningController:
                     "accepted_training_steps": focus_model.get("steps_total", 0),
                     "training_status": focus_run.get("training_status", "not_started"),
                     "observed_research_articles": len(focus_observations),
+                    "distinct_research_hosts": len({
+                        item.get("host") for item in focus_observations
+                        if item.get("host")}),
+                    "pending_research_urls": focus_run.get(
+                        "pending_research_urls", 0),
+                    "search_queries_this_run": focus_run.get(
+                        "search_queries_this_run", 0),
+                    "cross_publisher_links_queued": focus_run.get(
+                        "cross_host_links_queued_this_run", 0),
+                    "brave_search_key_configured": bool(
+                        os.environ.get("BRAVE_SEARCH_API_KEY")),
+                    "source_comparison_leads": len(
+                        focus_run.get("research_review_leads", [])),
                     "research_only_is_not_neural_training": True,
                     "training_needs_manual_source_rights_review": True,
                     "last_errors": focus_run.get("last_errors", [])[-3:],
