@@ -85,7 +85,7 @@ def _robots_allows(url, *, fetch_robots=None):
         # global query restrictions conservatively rather than bypass them.
         # This guard can overblock, but never grants access.
         if parts.query and re.search(
-                r"(?im)^\\s*Disallow:\\s*/\\*\\?[^\\r\\n]*$", robots):
+                r"(?im)^\s*Disallow:\s*/\*\?[^\r\n]*$", robots):
             return False
         parser = RobotFileParser()
         parser.parse(robots.splitlines())
