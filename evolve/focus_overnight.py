@@ -304,10 +304,35 @@ def _run_page(store, settings, state, profile, fetcher=None,
         quality = topic_relevance(content, title, profile)
         if not quality["language_ok"] or not quality["topical"] or len(content) < 400:
             state["skipped_off_topic_or_non_arabic"] += 1
+            reason = (
+                "non_arabic" if not quality["language_ok"] else
+                "off_topic" if not quality["topical"] else
+                "short_extracted_article"
+            )
+            # An Arabic hub may link to genuine historical articles even if
+            # the hub itself is too short or too broad to archive as evidence.
+            # Link hints are never trained on, and every target is separately
+            # screened by fetch_page and the article admission policy.
+            related_links = 0
+            if quality["language_ok"] and depth < 3:
+                for target in relevant_links(html, url, profile):
+                    if _enqueue(state, target, depth + 1):
+                        related_links += 1
+                        state["links_queued_this_run"] += 1
+                        state["cross_host_links_queued_this_run"] += int(
+                            urlsplit(target).hostname != host)
             _publish(store, state, "skipped_irrelevant_page", url=url,
-                     event="page_skipped", detail="not Arabic Saudi-history research")
-            return {"status": "off_topic_or_non_arabic",
-                    "url": url, "language_ratio_ar": quality["language_ratio_ar"]}
+                     event="page_skipped", detail=reason + " · " +
+                     str(related_links) + " related links queued")
+            return {
+                "status": "off_topic_or_non_arabic", "url": url,
+                "reason": reason,
+                "language_ratio_ar": quality["language_ratio_ar"],
+                "extracted_characters": len(content),
+                "keyword_hits": quality["keyword_hits"],
+                "title_keyword_hits": quality["title_keyword_hits"],
+                "related_links_queued": related_links,
+            }
         # A re-fetched source might have an earlier human license review;
         # don't silently replace that review with UNKNOWN.
         existing = store.db.execute(
