@@ -114,6 +114,43 @@ class SitemapDiscoveryTests(unittest.TestCase):
         self.assertEqual(len(calls), 3)
         self.assertEqual(cooling["network_requests"], 0)
 
+    def test_large_sitemap_drains_persistent_candidate_backlog(self):
+        now = 50_000
+        calls = []
+        def sitemap_provider(host):
+            calls.append(host)
+            return {
+                "status": "sitemap_urls_found",
+                "network_requests": 2,
+                "url_candidates": [
+                    f"https://{host}/تاريخ-السعودية-مقال-{i}"
+                    for i in range(56)
+                ],
+            }
+        batches = []
+        for delta in range(3):
+            response = discover_publisher_sitemaps(
+                self.store, self.profile, [],
+                sitemap_fn=sitemap_provider, now=now + delta,
+                max_candidates=25)
+            batches.append(response)
+        self.assertEqual([len(x["url_candidates"]) for x in batches],
+                         [25, 25, 6])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(
+            [x["backlog_remaining"] for x in batches], [31, 6, 0])
+        self.assertEqual(
+            [x["network_requests"] for x in batches], [2, 0, 0])
+        all_urls = [url for batch in batches
+                    for url in batch["url_candidates"]]
+        self.assertEqual(len(set(all_urls)), 56)
+        fourth = discover_publisher_sitemaps(
+            self.store, self.profile, [],
+            sitemap_fn=sitemap_provider, now=now + 3,
+            max_candidates=25)
+        self.assertEqual(fourth["host"], "www.spa.gov.sa")
+        self.assertEqual(len(calls), 2)
+
     def test_cycle_uses_sitemap_candidates_after_queue_is_empty(self):
         attempted = []
         def fake_sitemap(host):
