@@ -5,12 +5,16 @@ must explicitly allow the results route in their current robots policy and
 terms. Google and Bing disallow unattended /search results access, so they are
 recorded as unavailable, not accessed by impersonating a human.
 
-DuckDuckGo's normal root query route currently permits crawling in robots.txt,
-but any future robots restriction, CAPTCHA, 403/429 or challenge fails closed.
+DuckDuckGo's current robots policy forbids automated search result query URLs
+(Disallow: /*?). The built-in urllib.robotparser does not implement robots
+wildcard matching, so explicit wildcard-query restrictions must fail closed.
+Future robots policy changes must still pass live checks; CAPTCHA, 403/429 or
+challenges are never bypassed.
 All search text/results are merely discovery hints, never training data.
 """
 from urllib.parse import quote, urlsplit
 from urllib.robotparser import RobotFileParser
+import re
 import urllib.request
 
 from .web_discovery import USER_AGENT, canonical_url
@@ -76,6 +80,13 @@ def _robots_allows(url, *, fetch_robots=None):
             robots = raw.decode("utf-8", errors="strict")
         else:
             robots = str(raw)
+        # RobotFileParser ignores the '*' wildcard in patterns like /*?,
+        # which can incorrectly allow DuckDuckGo result URLs. Treat such
+        # global query restrictions conservatively rather than bypass them.
+        # This guard can overblock, but never grants access.
+        if parts.query and re.search(
+                r"(?im)^\\s*Disallow:\\s*/\\*\\?[^\\r\\n]*$", robots):
+            return False
         parser = RobotFileParser()
         parser.parse(robots.splitlines())
         return parser.can_fetch(USER_AGENT, url)
