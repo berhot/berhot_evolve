@@ -405,6 +405,8 @@ def cycle(store, settings, state, pages=3, train_steps=40,
         raise ValueError("pages per cycle must be 1..8")
     profile = get_profile(state["profile"])
     observations = store.get(_HISTORY + state["profile"], []) or []
+    _publish(store, state, "searching_research_sources",
+             event="search_check")
     if stop_requested(store, state["run_id"], state["profile"]):
         search = {"status": "skipped_stop_requested",
                   "queries_attempted": 0, "url_candidates": []}
@@ -425,6 +427,9 @@ def cycle(store, settings, state, pages=3, train_steps=40,
     state["search_status"] = search.get("status", "unknown")
     state["search_queries_this_run"] += search.get("queries_attempted", 0)
     state["search_results_queued_this_run"] += queued_search
+    _publish(store, state, "search_finished", event="search_result",
+             detail=state["search_status"] + " · " + str(queued_search)
+             + " new source URLs")
     outcomes = []
     for i in range(int(pages)):
         if stop_requested(store, state["run_id"], state["profile"]):
@@ -445,11 +450,32 @@ def cycle(store, settings, state, pages=3, train_steps=40,
             sleep_fn(max(2.0, float(settings.get("crawl_delay_seconds", 2))))
     observations = store.get(_HISTORY + state["profile"], []) or []
     state["research_review_leads"] = review_leads(observations)[:20]
+    base_steps = int(state["training_steps_this_run"])
+    base_tokens = int(state["training_byte_tokens_processed"])
+    state["current_training_steps_done"] = 0
+    state["current_training_steps_target"] = 0
+    state["current_training_loss"] = None
+
+    def neural_progress(step, target, loss):
+        # Exactly BATCH=8 windows * CONTEXT=48 UTF-8 byte token IDs
+        # per optimizer update in the existing byte-level GRU.
+        from .focus_training import BATCH, CONTEXT
+        state["current_training_steps_done"] = step
+        state["current_training_steps_target"] = target
+        state["current_training_loss"] = round(float(loss), 6)
+        state["training_steps_this_run"] = base_steps + step
+        state["training_byte_tokens_processed"] = (
+            base_tokens + step * BATCH * CONTEXT)
+        _publish(store, state, "training_neural_weights")
+
     if stop_requested(store, state["run_id"], state["profile"]):
         training = {"status": "skipped_stop_requested", "steps": 0,
                     "weights_updated": False}
     else:
-        training = train_if_eligible(store, state["profile"], steps=train_steps)
+        _publish(store, state, "checking_training_eligibility")
+        training = train_if_eligible(
+            store, state["profile"], steps=train_steps,
+            progress=neural_progress)
     state["training_status"] = training["status"]
     state["latest_training"] = {
         key: training.get(key) for key in (
@@ -459,7 +485,12 @@ def cycle(store, settings, state, pages=3, train_steps=40,
         ) if key in training}
     if training.get("status") == "trained":
         state["training_runs_with_new_weights"] += 1
-        state["training_steps_this_run"] += training["steps"]
+        state["training_steps_this_run"] = (
+            base_steps + int(training["steps"]))
+        state["training_byte_tokens_processed"] = (
+            base_tokens + int(training.get("training_window_bytes_seen", 0)))
+    _publish(store, state, "cycle_finished", event="cycle_finished",
+             detail=("research · training " + training["status"]))
     state["cycles_completed"] += 1
     state["updated_at_utc"] = _utc()
     state["pending_research_urls"] = len(state["_queue"])
@@ -607,7 +638,8 @@ def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
                 stop or stop_requested(store, state["run_id"], profile_name))
 
         state["status"] = "running"
-        store.put(_KEY + profile_name, _public_state(state))
+        _publish(store, state, "starting", event="worker_started",
+                 detail="Learning process started independently of Studio")
         print(json.dumps({
             "status": "running", "profile": profile_name,
             "run_id": state["run_id"],
@@ -642,7 +674,10 @@ def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
                     state["status"] = "idle_waiting_for_allowed_work"
                 else:
                     state["status"] = "running"
-                store.put(_KEY + profile_name, _public_state(state))
+                if state["status"] == "idle_waiting_for_allowed_work":
+                    _publish(store, state, "idle_waiting_for_allowed_work")
+                else:
+                    _publish(store, state, "waiting_for_next_cycle")
                 print(json.dumps(result, ensure_ascii=False), flush=True)
                 if not until_stopped and (
                         state["pages_attempted"] >= state["max_pages_this_run"]):
@@ -673,7 +708,8 @@ def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
                 max(0.0, monotonic_fn() - start) / 3600, 3)
             state["updated_at_utc"] = _utc()
             state["heartbeat_at_utc"] = _utc()
-            store.put(_KEY + profile_name, _public_state(state))
+            _publish(store, state, state["status"],
+                     event="worker_" + state["status"])
             for sig, prior in previous_signals.items():
                 signal.signal(sig, prior)
             print(json.dumps({
