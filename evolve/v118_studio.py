@@ -249,6 +249,8 @@ class LearningController:
                         "search_queries_this_run", 0),
                     "search_status": focus_run.get(
                         "search_status", "not_checked"),
+                    "last_sitemap_discovery": focus_run.get(
+                        "last_sitemap_discovery"),
                     "search_diagnostic": {
                         key: (focus_run.get("last_search_diagnostic") or {}).get(key)
                         for key in ("status", "provider", "error_type",
@@ -478,6 +480,7 @@ class LearningController:
                     "last_cycle_target": run.get("last_cycle_page_target", 0),
                     "last_cycle_idle_reason": run.get("last_cycle_idle_reason"),
                     "last_archive_recovery": run.get("last_archive_recovery"),
+                    "last_sitemap_discovery": run.get("last_sitemap_discovery"),
                     "training_steps_this_run": run.get(
                         "training_steps_this_run", 0),
                     "training_status": run.get("training_status", "not_checked"),
