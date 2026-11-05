@@ -125,11 +125,26 @@ def model_size_snapshot(store):
     Building an architecture here creates temporary initialized weights only.
     The returned parameter count is NOT a claim of model training or growth.
     """
-    from .v120_grounded import _model
-    from .focus_training import _network
-    ranker_params = sum(int(p.numel()) for p in _model().parameters())
-    _, focus_arch = _network()
-    focus_params = sum(int(p.numel()) for p in focus_arch.parameters())
+    # Keep the Studio status endpoint functional on Python installs that
+    # have not installed optional PyTorch yet. These formulas correspond to
+    # the exact current nn.Linear/Embedding/GRU module dimensions.
+    ranker_params = 7 * 12 + 12 + 12 * 1 + 1
+    focus_params = (
+        256 * 48 +  # byte embeddings
+        3 * 96 * 48 + 3 * 96 * 96 + 2 * 3 * 96 +  # GRU
+        96 * 256 + 256  # output logits
+    )
+    try:
+        from .v120_grounded import _model
+        from .focus_training import _network
+        ranker_params = sum(int(p.numel()) for p in _model().parameters())
+        _, focus_arch = _network()
+        focus_params = sum(int(p.numel()) for p in focus_arch.parameters())
+        computed_from_pytorch = True
+    except RuntimeError as exc:
+        if "Install PyTorch first" not in str(exc):
+            raise
+        computed_from_pytorch = False
     ranker = store.get("v120_ranker_latest") or {}
     focus = store.get("focus_train_latest_" + PROFILE) or {}
     candidate = store.get("focus_train_attempted_" + PROFILE) or {}
@@ -152,6 +167,7 @@ def model_size_snapshot(store):
             "latest_training_attempt_steps": candidate.get("steps", 0),
             "parameters_grew_from_more_articles": False,
         },
+        "architecture_counts_from_installed_pytorch": computed_from_pytorch,
         "archived_unique_cleaned_pages": int(bytes_row["n"]),
         "archived_cleaned_characters": int(bytes_row["chars"]),
         "does_not_count_architecture_without_training_as_a_trained_model": True,
