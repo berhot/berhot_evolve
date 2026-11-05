@@ -1630,3 +1630,29 @@ python3 -m evolve v120-readiness
 ```
 
 The missing independent test data still cannot be replaced by repeated training-source quotations or unreviewed website text.
+
+## v1.22.3 — Target one publisher in the existing crawl queue
+
+`corpus-crawl` normally picks the **oldest pending frontier URLs across every
+publisher**, not the latest two seeds. To inspect the required NOAA held-out
+publisher without spending requests on unrelated URLs:
+
+```bash
+python3 -m evolve corpus-seed --urls \
+  "https://oceanservice.noaa.gov/facts/current.html" \
+  "https://oceanservice.noaa.gov/facts/estuary.html" --same-host
+
+python3 -m evolve corpus-crawl --host oceanservice.noaa.gov --limit 2
+
+python3 -m evolve v122-evidence --host oceanservice.noaa.gov
+python3 -m evolve errors --limit 10
+python3 -m evolve v120-readiness
+```
+
+The crawl report now lists `attempted_urls` and `archived_urls` separately.
+The host filter chooses **only already-pending URLs on that exact host**.
+It does not change website robots policy, HTTPS verification, per-day request
+limits, source rights, existing done/error queue statuses, or the independent
+train/validation/test gate. If robots.txt is denied, the source remains
+unavailable and is **not** bypassed. The `retry-url` command refuses an
+explicit robots exclusion; never treat a 403 robots failure as permission.

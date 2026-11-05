@@ -151,8 +151,20 @@ class Store:
         self.db.commit()
         return cursor.rowcount>0
 
-    def next_web_url(self):
-        return self.db.execute("SELECT * FROM web_frontier WHERE status='pending' ORDER BY depth,discovered_at LIMIT 1").fetchone()
+    def next_web_url(self, host=None):
+        """Select oldest pending URL, optionally limited to one exact HTTPS host.
+
+        Use a hostname-validated filter from discover_web(); matching the
+        slash after the hostname prevents prefix-host confusion.
+        """
+        if host is None:
+            return self.db.execute(
+                "SELECT * FROM web_frontier WHERE status='pending' "
+                "ORDER BY depth,discovered_at LIMIT 1").fetchone()
+        return self.db.execute(
+            "SELECT * FROM web_frontier WHERE status='pending' "
+            "AND url LIKE ? ORDER BY depth,discovered_at LIMIT 1",
+            ("https://" + host + "/%",)).fetchone()
 
     def mark_web_url(self,url,status,error=None):
         self.db.execute('UPDATE web_frontier SET status=?,attempts=attempts+1,last_error=? WHERE url=?',

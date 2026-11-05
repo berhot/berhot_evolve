@@ -230,8 +230,20 @@ def register_exploration(store, seed_url, focus='', cross_host=False):
     return profile
 
 
-def discover_web(store,settings,limit=None,fetcher=None,sleep_fn=time.sleep,review_questions=True):
-    """Bounded web crawl. Fetcher injection is only for tests."""
+def discover_web(store,settings,limit=None,fetcher=None,sleep_fn=time.sleep,
+                 review_questions=True,host=None):
+    """Bounded web crawl; optional exact-host queue filter, never robots bypass.
+
+    Fetcher injection is only for tests. The host constraint selects only
+    *already-pending* matching URLs and leaves other queued sites untouched.
+    """
+    if host is not None:
+        if not isinstance(host, str) or not re.fullmatch(
+                r"[a-z0-9][a-z0-9.-]{2,251}", host):
+            raise ValueError("host must be a lowercase DNS hostname")
+        checked = canonical_url("https://" + host + "/")
+        if urlsplit(checked).hostname != host:
+            raise ValueError("host must be a valid public-style DNS hostname")
     profile=store.get('web_source_profile')
     if not profile: return {'status':'not_configured','message':'Run explore --seed-url ... or web-start ... first'}
     cap=int(limit if limit is not None else settings.get('discovery_per_cycle',12))
@@ -243,13 +255,15 @@ def discover_web(store,settings,limit=None,fetcher=None,sleep_fn=time.sleep,revi
     max_links=int(settings.get('web',{}).get('max_links_per_page',5))
     max_concepts=int(settings.get('web',{}).get('max_concepts_total',60))
     max_new=int(settings.get('web',{}).get('new_concepts_per_page',3))
-    report={'status':'completed','attempted':0,'saved':0,'research_observed':0,'errors':0,'error_details':[], 'links_added':0,'concepts_added':0, 'corpus_archived':0, 'corpus_new_unique_texts':0, 'corpus_duplicates':0}
+    report={'status':'completed','attempted':0,'saved':0,'research_observed':0,'errors':0,'error_details':[], 'links_added':0,'concepts_added':0, 'corpus_archived':0, 'corpus_new_unique_texts':0, 'corpus_duplicates':0,
+            'host_filter':host,'attempted_urls':[],'archived_urls':[]}
     for _ in range(cap):
         if used>=daily:
             report['status']='daily_budget_exhausted';break
-        row=store.next_web_url()
+        row=store.next_web_url(host=host)
         if row is None:break
         url=row['url'];depth=row['depth']
+        report['attempted_urls'].append(url)
         used+=1;store.put(day_key,used)
         report['attempted']+=1
         try:
@@ -274,6 +288,7 @@ def discover_web(store,settings,limit=None,fetcher=None,sleep_fn=time.sleep,revi
                 declared_license=declared, rights_url=rights_evidence)
             if corpus_result["status"] == "archived":
                 report["corpus_archived"] += 1
+                report["archived_urls"].append(url)
                 if corpus_result["new_unique_text"]:
                     report["corpus_new_unique_texts"] += 1
                 else:
