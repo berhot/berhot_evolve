@@ -19,6 +19,10 @@ from .v117 import prepare
 from .v119_curiosity import _sentences
 
 FORMAT = "berhot_evidence_ranker_v120"
+# A new label policy intentionally invalidates older checkpoints whose
+# held-out pairs included navigation text selected from question headings.
+_LABEL_POLICY = "v123_strict_subject_definition_no_navigation"
+
 _SPLITS = ("train", "val", "test")
 _BAD_START = ("media ", "image ", "photo ", "video ", "see also ", "references",
               "advertisement ", "read more ", "copyright ", "subscribe ",
@@ -83,7 +87,9 @@ def extract_definition(sentence):
     if not 18 <= len(s) <= 320 or not 4 <= len(s.split()) <= 62:
         return None
     lower = s.casefold()
-    if lower.startswith(_BAD_START) or any(bad in lower for bad in _BAD_BODY):
+    if (lower.startswith(_BAD_START) or
+            any(bad in lower for bad in _BAD_BODY) or
+            _navigation_fragment(s)):
         return None
     match = _DEFINE.match(s)
     if not match:
@@ -134,33 +140,74 @@ def _term_forms(topic):
     return sorted(words)
 
 
-def title_evidence(text, topic):
-    """Find one exact on-topic *definition-like* sentence near a Q title.
+def _navigation_fragment(sentence):
+    """Reject source chrome and article questions as *answer* evidence."""
+    low = " ".join(sentence.split()).casefold()
+    return (
+        "?" in sentence or
+        any(fragment in low for fragment in (
+            "toggle navigation", "toggle search", "skip to main content",
+            "get social", "dot gov icon", "https icon", "sign in", "menu",
+        )) or
+        low.startswith(("what is ", "what are ", "read more ", "more information "))
+    )
 
-    Does not paraphrase, cite unrelated sentences, or add content to the
-    source. A title alone is insufficient for a training example.
+
+def title_evidence(text, topic):
+    """Require a subject-anchored declarative definition, never a page heading.
+
+    A topic merely appearing near another sentence's "is a" is not a valid
+    pair. This previously promoted "Toggle navigation ... What is a current?"
+    to a training label and contaminated the NOAA held-out evaluation.
     """
-    term = re.compile(r"\b(?:" +
-                      "|".join(re.escape(x) for x in _term_forms(topic)) +
-                      r")\b", re.I)
-    # Avoid selecting incidental narrative such as 'Our Sun is roughly midway'.
-    pattern = re.compile(
-        r"\b(?:is|are)\s+(?:an?|the|one\s+of)\b|"
-        r"\b(?:is|are)\s+(?:\w+\s+){0,3}"
-        r"(?:bodies|areas|regions|types|systems|places|"
-        r"formations|structures|objects|habitats|masses)\s+of\b|"
-        r"\b(?:means|refers\s+to|defined\s+as|describes)\b",
-        re.I)
-    for sentence in _sentences(text)[:24]:
+    forms = "|".join(re.escape(x) for x in _term_forms(topic))
+    subject = r"(?:%s)" % forms
+    # A source may define "current" as a quoted term, or describe a plural
+    # noun such as "Estuaries and their surrounding wetlands are ...".
+    anchored = re.compile(
+        r"^(?:(?:the)\s+term\s+[\"'“”]?" + subject +
+        r"[\"'“”]?\s+(?:describes?|means|refers\s+to)\b"
+        r"|(?:(?:the|a|an|our)\s+)?"
+        r"(?:(?:[a-z][a-z-]+\s+){0,2})?" + subject +
+        r"(?:\s+and\s+their\s+surrounding\s+wetlands)?"
+        r"\s+(?P<verb>is|are|means|refers\s+to|describes?)\b)",
+        re.I,
+    )
+    identity = re.compile(
+        r"^(?:an?\s+|the\s+|one\s+of\s+|bodies\s+of\s+|"
+        r"areas\s+of\s+|regions\s+of\s+|types\s+of\s+|"
+        r"formations\s+of\s+|structures\s+of\s+|"
+        r"systems\s+of\s+|movement\s+of\s+|motion\s+of\s+)",
+        re.I,
+    )
+    for sentence in _sentences(text)[:48]:
         candidate = " ".join(sentence.split()).strip()
-        lower = candidate.casefold()
         if not 28 <= len(candidate) <= 320 or len(candidate.split()) < 6:
             continue
+        if _navigation_fragment(candidate):
+            continue
+        lower = candidate.casefold()
         if lower.startswith(_BAD_START) or any(x in lower for x in _BAD_BODY):
             continue
-        if term.search(candidate) and pattern.search(candidate):
-            return candidate
+        match = anchored.match(candidate)
+        if not match:
+            continue
+        # "Currents are driven by ..." is an attribute, not an identity.
+        if match.group("verb") in ("is", "are") and not identity.match(
+                candidate[match.end():].strip()):
+            continue
+        return candidate
     return None
+
+
+def _inventory_revision(facts):
+    """Stable digest of actual accepted topic/quote/source labels."""
+    labels = sorted([
+        [f["url"], f["source_sha256"], f["sentence_sha256"], f["topic"]]
+        for f in facts
+    ])
+    return _sha(json.dumps(labels, ensure_ascii=False,
+                           separators=(",", ":")).encode("utf-8"))
 
 
 def _inventory(store, limit_sources=200, per_source=18):
@@ -247,9 +294,16 @@ def _model():
     return nn.Sequential(nn.Linear(7, 12), nn.Tanh(), nn.Linear(12, 1))
 
 
-def _accepted_model(store):
+def _accepted_model(store, facts=None):
     record = store.get("v120_ranker_latest")
     if not record or not record.get("accepted_by_validation"):
+        return None, None
+    # Historical checkpoints remain immutable and visible in audit records,
+    # but cannot rank current answers under a stricter evidence-label policy.
+    if record.get("label_policy") != _LABEL_POLICY:
+        return None, None
+    if record.get("inventory_sha256") != _inventory_revision(
+            facts if facts is not None else _inventory(store)):
         return None, None
     file = Path(record.get("checkpoint", ""))
     # Store paths are untrusted metadata; validate containment and SHA.
@@ -260,7 +314,9 @@ def _accepted_model(store):
         return None, None
     torch, _ = require_torch()
     checkpoint = torch.load(file, map_location="cpu", weights_only=True)
-    if checkpoint.get("format") != FORMAT or checkpoint.get("feature_size") != 7:
+    if (checkpoint.get("format") != FORMAT or
+            checkpoint.get("feature_size") != 7 or
+            checkpoint.get("label_policy") != _LABEL_POLICY):
         return None, None
     model = _model()
     model.load_state_dict(checkpoint["weights"])
@@ -312,7 +368,7 @@ def grounded_answer(store, question, limit=3):
         }
     model, record = (None, None)
     try:
-        model, record = _accepted_model(store)
+        model, record = _accepted_model(store, facts=facts)
     except (RuntimeError, ValueError, OSError, KeyError):
         pass
     scores = []
@@ -516,6 +572,8 @@ def train_ranker(store, settings, steps=120, seed=31415, progress=None):
     )
     snapshot = {
         "format": FORMAT,
+        "label_policy": _LABEL_POLICY,
+        "inventory_sha256": _inventory_revision(_inventory(store)),
         "dataset_sha256": frozen["dataset_sha256"],
         "source_hosts": frozen["source_hosts"],
         "splits": {k: [{
@@ -543,11 +601,14 @@ def train_ranker(store, settings, steps=120, seed=31415, progress=None):
         raise ValueError("Refusing to overwrite a previous v120 checkpoint")
     torch.save({
         "format": FORMAT, "feature_size": 7, "seed": int(seed),
+        "label_policy": _LABEL_POLICY,
         "weights": {k: v.detach().cpu() for k, v in model.state_dict().items()},
         "manifest_sha256": digest, "steps": actual,
     }, checkpoint)
     record = {
         "status": "trained", "model_type": "neural_evidence_ranking_not_generation",
+        "label_policy": _LABEL_POLICY,
+        "inventory_sha256": _inventory_revision(_inventory(store)),
         "checkpoint": str(checkpoint), "sha256": sha256_file(checkpoint),
         "manifest_path": str(manifest), "manifest_sha256": digest,
         "dataset_sha256": frozen["dataset_sha256"],

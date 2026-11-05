@@ -115,6 +115,91 @@ class DefinitionUnitTests(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_real_noaa_navigation_is_never_accepted_as_a_definition(self):
+        # This reproduces the user's actual v1.22.3 false answers, including
+        # a valid source title and two true, independent source definitions.
+        chrome = (
+            "Toggle navigation Toggle search National Ocean Service "
+            "National Oceanic and Atmospheric Administration "
+        )
+        navigation_current = chrome + "What is a current?"
+        navigation_estuary = chrome + "What is an estuary?"
+        current_definition = (
+            'The term "current" describes the motion of the ocean.')
+        estuary_definition = (
+            "Estuaries and their surrounding wetlands are bodies of water "
+            "usually found where rivers meet the sea.")
+        self.assertIsNone(title_evidence(navigation_current, "current"))
+        self.assertIsNone(title_evidence(navigation_estuary, "estuary"))
+        self.assertEqual(
+            title_evidence(navigation_current + " " + current_definition,
+                           "current"), current_definition)
+        self.assertEqual(
+            title_evidence(navigation_estuary + " " + estuary_definition,
+                           "estuary"), estuary_definition)
+        self.assertIsNone(extract_definition(navigation_current))
+
+        with tempfile.TemporaryDirectory() as root:
+            store = Store(root)
+            try:
+                for topic, definition, navigation in (
+                    ("current", current_definition, navigation_current),
+                    ("estuary", estuary_definition, navigation_estuary),
+                ):
+                    filler = " ".join(
+                        "Oceanographers collected seawater measurements "
+                        "during independent field surveys at site " + str(i) +
+                        " to document coastal science accurately."
+                        for i in range(80))
+                    text = navigation + " " + definition + " " + filler
+                    result = archive_page(
+                        store, "https://ocean.example.org/facts/" + topic,
+                        "<html><body>" + text + "</body></html>",
+                        text, title="What is a " + topic + "?",
+                        noai=False, declared_license="CC0-1.0",
+                        rights_url="fixture:self-authored")
+                    self.assertEqual(result["status"], "archived")
+                # A legacy ranker may have passed its previous contaminated
+                # test; neither its old source-quote answers nor its
+                # checkpoint's acceptance flag can override new evidence rules.
+                old = {"accepted_by_validation": True,
+                       "sha256": "historic-invalid-checkpoint",
+                       "checkpoint": "/tmp/historic.pt"}
+                store.put("v120_ranker_latest", old)
+                for topic, expected in (
+                    ("current", current_definition),
+                    ("estuary", estuary_definition),
+                ):
+                    response = grounded_answer(store, "What is " + topic + "?")
+                    self.assertEqual(response["status"], "answered", response)
+                    self.assertEqual(response["answer"], expected)
+                    self.assertFalse(response["neural_ranker_used"])
+                    self.assertNotIn("Toggle", response["answer"])
+            finally:
+                store.close()
+
+    def test_title_question_without_real_definition_is_not_training_data(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = Store(root)
+            try:
+                navigation = (
+                    "Toggle navigation Toggle search National Ocean Service "
+                    "National Oceanic and Atmospheric Administration "
+                    "What is a current?")
+                filler = ("Oceanographers measured ocean water during "
+                          "careful scientific surveys. " * 80)
+                text = navigation + " " + filler
+                archive_page(
+                    store, "https://ocean.example.org/facts/current",
+                    "<html><body>" + text + "</body></html>", text,
+                    title="What is a current?", declared_license="CC0-1.0",
+                    rights_url="fixture:self-authored")
+                response = grounded_answer(store, "What is a current?")
+                self.assertEqual(response["status"], "no_definition")
+                self.assertEqual(inventory(store)["source_derived_definitions"], 0)
+            finally:
+                store.close()
+
     def test_question_title_grounds_exact_answer_without_invention(self):
         self.assertEqual(title_question("What is a current? - NOAA"), "current")
         self.assertEqual(title_question("What is an estuary?"), "estuary")
