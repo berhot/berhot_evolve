@@ -367,6 +367,13 @@ class NeuralRankerTests(unittest.TestCase):
                 self.assertEqual(before["answer"], after["answer"])
                 self.assertTrue(after["sources"])
                 self.assertFalse(after["neural_weights_updated"])
+                # A trained checkpoint can be loaded without affecting
+                # the output if there is exactly one supported quote.
+                self.assertEqual(after["candidate_count"], 1)
+                self.assertFalse(after["neural_ranker_used"])
+                self.assertFalse(after["neural_decision_changed_top_quote"])
+                self.assertEqual(after["ranker_checkpoint_loaded"],
+                                 bool(result["accepted_by_validation"]))
             finally:
                 store.close()
 
