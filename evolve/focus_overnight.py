@@ -706,7 +706,9 @@ def cycle(store, settings, state, pages=3, train_steps=40,
         # public DNS, robots, same-origin HTTPS, TLS and redirects. This is
         # link discovery only; actual page fetches still use fetch_page.
         sitemap = discover_publisher_sitemaps(
-            store, profile, observations, sitemap_fn=sitemap_fn)
+            store, profile, observations, sitemap_fn=sitemap_fn,
+            already_seen=state["_seen"] | {
+                item["url"] for item in state["_queue"]})
         queued_sitemap = 0
         for candidate in sitemap.get("url_candidates", []):
             queued_sitemap += int(_enqueue(state, candidate))
@@ -714,7 +716,7 @@ def cycle(store, settings, state, pages=3, train_steps=40,
             key: sitemap.get(key) for key in (
                 "status", "host", "network_requests",
                 "sitemap_documents_checked", "candidate_urls_found",
-                "retry_after_seconds",
+                "backlog_remaining", "retry_after_seconds",
             )
         }
         state["last_sitemap_discovery"]["new_urls_queued"] = queued_sitemap
