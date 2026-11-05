@@ -35,10 +35,21 @@ def _approved_pages(store, profile):
         "ORDER BY host,url"
     ).fetchall()
     approved = []
+    review_history = store.get("v117_rights_review_history", []) or []
+    reviewed = {
+        (r.get("url"), r.get("clean_sha256"), r.get("reviewed_rights"))
+        for r in review_history if r.get("reviewer_attested_per_page") is True
+    }
     for row in rows:
         if row["host"] not in profile["allowed_hosts"]:
             continue
         source, text = _approved_text(store, row["url"])
+        # Content-level public-domain/CC0 signals alone are not enough for
+        # a high-risk autonomous overnight training workflow. Require a
+        # page-specific human review attestation with the SAME immutable
+        # source digest as this archive snapshot.
+        if (row["url"], source["sha256"], row["rights_status"]) not in reviewed:
+            continue
         quality = topic_relevance(text, source["title"], profile)
         if quality["language_ok"] and quality["topical"]:
             approved.append({
@@ -85,6 +96,7 @@ def readiness(store, profile_name):
     return {
         "status": "ready" if eligible else "insufficient_approved_arabic_publishers_or_text",
         "rights_eligible_arabic_pages": len(pages),
+        "requires_human_per_page_rights_review": True,
         "rights_eligible_arabic_hosts": hosts,
         "source_hosts_by_split": {
             split: sorted(k for k, v in assignments.items() if v == split)
@@ -169,9 +181,10 @@ def train_if_eligible(store, profile_name, steps=60, seed=31415):
             "dataset_revision_sha256": check["dataset_revision_sha256"],
             "weights_updated": False, "steps": 0,
         }
-    torch, model = _network()
+    from .brain import require_torch
+    torch, _ = require_torch()
     torch.manual_seed(seed)
-    # Recreate after seeding. CPU-only avoids surprising laptop GPU loads.
+    # CPU-only avoids surprising laptop GPU loads.
     torch, model = _network()
     sources = check["_pages"]
     splits = {part: [p["data"] for p in sources
