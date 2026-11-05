@@ -376,6 +376,9 @@ def grounded_answer(store, question, limit=3):
                        "I cannot yet establish a reliable explanation for "
                        "open-ended how/why questions."),
             "sources": [], "neural_weights_updated": False,
+            "candidate_count": 0, "ranker_checkpoint_loaded": False,
+            "neural_ranker_used": False,
+            "neural_decision_changed_top_quote": False,
         }
     facts = _inventory(store)
     candidates = [fact for fact in facts if topic == fact["topic"]]
@@ -385,31 +388,45 @@ def grounded_answer(store, question, limit=3):
             "answer": (f"I haven't found an explicit, approved-source definition "
                        f"of {topic}. I won't invent one."),
             "sources": [], "neural_weights_updated": False,
+            "candidate_count": 0, "ranker_checkpoint_loaded": False,
+            "neural_ranker_used": False,
+            "neural_decision_changed_top_quote": False,
         }
     model, record = (None, None)
     try:
         model, record = _accepted_model(store, facts=facts)
     except (RuntimeError, ValueError, OSError, KeyError):
         pass
-    scores = []
+    scores, lexical_scores = [], []
+    # Loading a model does not imply that it made a real choice: the great
+    # majority of the current source topics have just ONE possible answer.
+    neural_compared_candidates = model is not None and len(candidates) >= 2
     torch = None
-    if model is not None:
+    if neural_compared_candidates:
         torch, _ = require_torch()
     for fact in candidates:
         base = _lexical_score(question, fact)
         # Identity answers are preferred for "what is" questions. A model
         # cannot win by selecting a subject's unrelated size/composition fact.
         base += _identity_priority(topic, fact["answer"])
+        lexical_scores.append((base, fact))
         neural = 0.0
-        if model is not None:
+        if neural_compared_candidates:
             with torch.no_grad():
                 features = torch.tensor([_features(question, fact)],
                                         dtype=torch.float32)
                 neural = float(model(features)[0, 0].item())
         # Neural scoring is a bounded tiebreaker; it never invents evidence.
         scores.append((base + max(-0.5, min(0.5, neural * 0.1)), fact))
-    scores.sort(key=lambda x: (-x[0], x[1]["url"], x[1]["sentence_sha256"]))
+    ordering = lambda x: (-x[0], x[1]["url"], x[1]["sentence_sha256"])
+    scores.sort(key=ordering)
+    lexical_scores.sort(key=ordering)
     selected = [x[1] for x in scores[:max(1, min(limit, 3))]]
+    neural_changed_selection = bool(
+        neural_compared_candidates and
+        (selected[0]["url"], selected[0]["sentence_sha256"]) !=
+        (lexical_scores[0][1]["url"], lexical_scores[0][1]["sentence_sha256"])
+    )
     return {
         "mode": "grounded_qa_not_generative", "status": "answered",
         "answer": selected[0]["answer"],
@@ -418,14 +435,20 @@ def grounded_answer(store, question, limit=3):
             "excerpt": f["answer"], "host": f["host"],
             "source_sha256": f["source_sha256"],
         } for f in selected],
-        "neural_ranker_used": model is not None,
+        "candidate_count": len(candidates),
+        "distinct_candidate_hosts": len({f["host"] for f in candidates}),
+        "ranker_checkpoint_loaded": model is not None,
+        "neural_ranker_used": neural_compared_candidates,
+        "neural_decision_changed_top_quote": neural_changed_selection,
+        "lexical_top_quote_same_as_returned": not neural_changed_selection,
         "ranker_checkpoint_sha256": record["sha256"] if record else None,
         "neural_weights_updated": False,
         "training_examples_not_neural_answers": True,
         "warning": (
             "Exact sentence from an approved local article, selected using "
-            "definition extraction" + (" and a small neural evidence ranker" if model
-            else " and lexical relevance") +
+            "definition extraction" + (
+                " and a bounded neural ranking tiebreaker" if neural_compared_candidates
+                else " and lexical relevance (no neural comparison available)") +
             ". The source's factual accuracy is not independently verified. "
             "Not a neural-generated explanation."
         ),
