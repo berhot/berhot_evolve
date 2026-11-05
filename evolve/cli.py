@@ -88,6 +88,8 @@ def main(argv=None):
     qualifier = sub.add_parser("v122-evidence", help="Read-only rights and QA-evidence host qualification report; never admits training data")
     qualifier.add_argument("--limit", type=int, default=80)
     qualifier.add_argument("--host", default=None, help="Inspect one publisher host, e.g. oceanservice.noaa.gov")
+    evaluator = sub.add_parser("v124-eval", help="Read-only current citation/abstention audit and real neural-vs-lexical inference competition coverage")
+    evaluator.add_argument("--limit", type=int, default=30)
     studio = sub.add_parser("studio", help="Launch local live web dashboard with chat and controlled learning")
     studio.add_argument("--port", type=int, default=8787)
     studio.add_argument("--interval", type=int, default=3600,
@@ -439,6 +441,9 @@ def main(argv=None):
                 from .v122_evidence import evidence_report
                 result = evidence_report(store, limit=args.limit,
                                          host=args.host)
+            elif args.command == "v124-eval":
+                from .v124_inference_audit import evaluate_inference
+                result = evaluate_inference(store, limit=args.limit)
             elif args.command == "v120-ask":
                 from .v120_grounded import grounded_answer
                 result = grounded_answer(store, args.question)
