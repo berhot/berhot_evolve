@@ -116,8 +116,8 @@ class StudioCompatibilityTests(unittest.TestCase):
             controller = LearningController(settings, interval=60)
             try:
                 status = controller.status()
-                self.assertEqual(status["studio_api_version"], 3)
-                self.assertEqual(status["studio_backend_version"], "1.21.0")
+                self.assertEqual(status["studio_api_version"], 4)
+                self.assertEqual(status["studio_backend_version"], "1.28.0")
                 self.assertIn("auto", status["supported_chat_modes"])
                 self.assertEqual(status["research_budget"]["remaining"], 0)
                 answer = controller.talk("sun", "auto")
@@ -145,7 +145,7 @@ class StudioCompatibilityTests(unittest.TestCase):
     def test_page_explains_stale_old_backend(self):
         html = (Path(__file__).resolve().parents[1] / "evolve" /
                 "studio.html").read_text("utf-8")
-        self.assertIn('const STUDIO_API_VERSION=3;', html)
+        self.assertIn('const STUDIO_API_VERSION=4;', html)
         self.assertIn("Old Studio backend detected", html)
         self.assertIn('id="research-budget"', html)
 
