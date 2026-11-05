@@ -33,7 +33,12 @@ def main(argv=None):
     focus_run.add_argument("--network", action="store_true", help="Required explicit consent for robots-compliant site access")
     focus_run.add_argument("--hours", type=float, default=8.0)
     focus_run.add_argument("--until-stopped", action="store_true",
-        help="Keep agent process alive until Ctrl+C, SIGTERM or dashboard Stop; research remains capped per UTC day")
+        help="Keep the local agent alive until Ctrl+C, SIGTERM or dashboard Stop")
+    focus_run.add_argument("--no-fixed-quotas", action="store_true",
+        help="Run without numeric page/search stop counts; still respect robots, backoff and resource pacing")
+    focus_run.add_argument("--browser-search-provider",
+        choices=["duckduckgo", "google", "bing"], default="duckduckgo",
+        help="Keyless headless search; Google/Bing refuse unattended access while their policies prohibit it")
     focus_stop = sub.add_parser("focus-stop", help="Request graceful stop of the running Saudi-history worker")
     focus_stop.add_argument("--profile", choices=["saudi-history-ar"], default="saudi-history-ar")
     focus_run.add_argument("--interval-minutes", type=int, default=15)
@@ -416,7 +421,9 @@ def main(argv=None):
                 max_pages=args.max_pages,
                 pages_per_cycle=args.pages_per_cycle,
                 train_steps=args.train_steps,
-                until_stopped=args.until_stopped)
+                until_stopped=args.until_stopped,
+                no_fixed_quotas=args.no_fixed_quotas,
+                search_provider=args.browser_search_provider)
         finally:
             focus_store.close()
         return

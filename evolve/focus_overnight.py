@@ -70,9 +70,10 @@ def plan(profile_name="saudi-history-ar", extra_urls=None):
         "language": profile["language"],
         "initial_seed_hosts": list(profile["initial_seed_hosts"]),
         "no_permanent_website_allowlist": True,
-        "discovery": "cross_publisher_topical_links_and_optional_brave_search",
-        "search_provider": "Brave Web Search API only when BRAVE_SEARCH_API_KEY supplied",
-        "search_api_key_configured": bool(os.environ.get("BRAVE_SEARCH_API_KEY")),
+        "discovery": "cross_publisher_topical_links_and_keyless_headless_search",
+        "search_provider": "duckduckgo (Google/Bing automated result access blocked by current policies)",
+        "search_api_key_required": False,
+        "optional_browser_install_needed": True,
         "seed_urls": list(dict.fromkeys(seeds)),
         "no_training_rights_inferred": True,
         "research_only_until_per_article_rights_review": True,
@@ -104,6 +105,10 @@ def init_state(store, profile_name, extra_urls=None, max_pages=24):
         "pages_attempted_today": 0,
         "pages_day_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         "until_stopped": False,
+        "no_fixed_quotas": False,
+        "browser_search_provider": "duckduckgo",
+        "minimum_host_gap_seconds": 20,
+        "_host_last_at": {},
         "worker_pid": None,
         "heartbeat_at_utc": now,
         "stop_requested": False,
@@ -150,6 +155,8 @@ def init_state(store, profile_name, extra_urls=None, max_pages=24):
         state["_host_day_used"] = dict(saved_frontier.get("host_counts", {}))
         state["pages_attempted_today"] = int(
             saved_frontier.get("pages_attempted_today", 0))
+    state["_host_last_at"] = dict(
+        saved_frontier.get("host_last_at", {}))
     for url in base["seed_urls"]:
         _enqueue(state, url)
     store.put(_KEY + profile_name, _public_state(state))
@@ -169,10 +176,10 @@ def _topic_link(url, profile):
 
 
 def _rollover_if_new_utc_day(state):
-    """Refresh the finite research queue once daily for the continuous mode.
+    """Track the UTC day, retaining discovered links and visited hashes.
 
-    Page count is per UTC day, never unbounded; daily quota and URL robots
-    rules are enforced separately by the existing fetcher.
+    Legacy bounded runs reset their per-day counters. Open-ended research
+    does not stop at a numeric count but still obeys robots and pacing.
     """
     if not state.get("until_stopped"):
         return False
@@ -195,7 +202,8 @@ def _rollover_if_new_utc_day(state):
 def _run_page(store, settings, state, profile, fetcher=None,
               sleep_fn=time.sleep):
     _rollover_if_new_utc_day(state)
-    if state.get("until_stopped") and (
+    if (state.get("until_stopped") and
+            not state.get("no_fixed_quotas") and
             state["pages_attempted_today"] >= state["max_pages_per_utc_day"]):
         return {"status": "daily_page_cap_reached"}
     if not state["_queue"]:
@@ -205,9 +213,18 @@ def _run_page(store, settings, state, profile, fetcher=None,
     host = urlsplit(url).hostname
     # Fair use: no single site consumes the whole day. This is a request
     # quota, NOT a permanent list of permitted websites.
-    if state["_host_day_used"].get(host, 0) >= 4:
+    if not state.get("no_fixed_quotas") and (
+            state["_host_day_used"].get(host, 0) >= 4):
         state["_queue"].append(item)
         return {"status": "publisher_daily_quota", "host": host}
+    if state.get("no_fixed_quotas"):
+        last = float(state["_host_last_at"].get(host, 0) or 0)
+        wait = int(state.get("minimum_host_gap_seconds", 20))
+        elapsed = time.time() - last
+        if 0 <= elapsed < wait:
+            state["_queue"].append(item)
+            return {"status": "publisher_pacing_wait", "host": host,
+                    "retry_after_seconds": round(wait - elapsed, 2)}
     if url in state["_seen"]:
         return {"status": "already_seen", "url": url}
     state["_seen"].add(url)
@@ -215,13 +232,14 @@ def _run_page(store, settings, state, profile, fetcher=None,
             state["pages_attempted"] >= state["max_pages_this_run"]):
         return {"status": "run_cap_reached"}
     quota = budget_status(store, settings)
-    if quota["remaining"] <= 0:
-        # Keep the candidate for tomorrow after the shared UTC reset.
+    if not state.get("no_fixed_quotas") and quota["remaining"] <= 0:
+        # Legacy bounded mode: defer until the shared UTC counter resets.
         state["_seen"].remove(url)
         state["_queue"].insert(0, item)
         return {"status": "daily_budget_exhausted"}
     key = "web_requests_" + quota["day_utc"]
     store.put(key, quota["used"] + 1)
+    state["_host_last_at"][host] = time.time()
     state["pages_attempted"] += 1
     state["pages_attempted_today"] += 1
     state["_host_day_used"][host] = state["_host_day_used"].get(host, 0) + 1
@@ -320,13 +338,19 @@ def cycle(store, settings, state, pages=3, train_steps=40,
         raise ValueError("pages per cycle must be 1..8")
     profile = get_profile(state["profile"])
     observations = store.get(_HISTORY + state["profile"], []) or []
-    search = (
-        {"status": "skipped_stop_requested", "queries_attempted": 0,
-         "url_candidates": []}
-        if stop_requested(store, state["run_id"], state["profile"])
-        else run_one_search(store, settings, profile, observations,
-                            search_fn=search_fn)
-    )
+    if stop_requested(store, state["run_id"], state["profile"]):
+        search = {"status": "skipped_stop_requested",
+                  "queries_attempted": 0, "url_candidates": []}
+    elif fetcher is not None and search_fn is None:
+        # Offline fixture injection must NEVER unexpectedly make real
+        # browser or search-engine requests, even when Playwright is installed.
+        search = {"status": "offline_test_no_search_provider",
+                  "queries_attempted": 0, "url_candidates": []}
+    else:
+        search = run_one_search(
+            store, settings, profile, observations, search_fn=search_fn,
+            open_ended=bool(state.get("no_fixed_quotas")),
+            provider=state.get("browser_search_provider", "duckduckgo"))
     queued_search = 0
     for found in search.get("url_candidates", []):
         if _enqueue(state, found):
@@ -381,6 +405,7 @@ def cycle(store, settings, state, pages=3, train_steps=40,
         "pending": state["_queue"][:500],
         "host_counts": state["_host_day_used"],
         "pages_attempted_today": state["pages_attempted_today"],
+        "host_last_at": state["_host_last_at"],
     })
     store.put(_KEY + state["profile"], _public_state(state))
     store.log("focus_cycle", "completed", {
@@ -431,7 +456,11 @@ def report(store, profile_name="saudi-history-ar"):
         "discovery": {
             "cross_publisher_topic_links_enabled": True,
             "no_fixed_website_allowlist": True,
-            "brave_api_configured": bool(os.environ.get("BRAVE_SEARCH_API_KEY")),
+            "browser_search_requires_api_key": False,
+            "search_provider": (run or {}).get(
+                "browser_search_provider", "duckduckgo"),
+            "no_fixed_quotas": bool(
+                (run or {}).get("no_fixed_quotas", False)),
             "search_query_count_last_run": (run or {}).get(
                 "search_queries_this_run", 0),
             "pending_links": len(
@@ -464,7 +493,8 @@ def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
         interval_minutes=15, max_pages=24, pages_per_cycle=3,
         train_steps=40, extra_urls=None, fetcher=None, sleep_fn=time.sleep,
         monotonic_fn=time.monotonic, until_stopped=False,
-        search_fn=None):
+        search_fn=None, no_fixed_quotas=False,
+        search_provider="duckduckgo"):
     """User-started local process; continuous mode ends ONLY on manual stop.
 
     Source queue and page caps reset at UTC midnight, but network permissions,
@@ -473,6 +503,10 @@ def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
     """
     if not until_stopped and not 0 < float(hours) <= 12:
         raise ValueError("hours must be within (0, 12]")
+    if no_fixed_quotas and not until_stopped:
+        raise ValueError("--no-fixed-quotas requires --until-stopped")
+    if search_provider not in ("duckduckgo", "google", "bing"):
+        raise ValueError("Unknown browser search provider")
     if not 1 <= int(interval_minutes) <= 60:
         raise ValueError("interval-minutes must be 1..60")
     if not 1 <= int(pages_per_cycle) <= 8:
@@ -481,6 +515,8 @@ def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
     try:
         state = init_state(store, profile_name, extra_urls, max_pages=max_pages)
         state["until_stopped"] = bool(until_stopped)
+        state["no_fixed_quotas"] = bool(no_fixed_quotas)
+        state["browser_search_provider"] = search_provider
         state["worker_pid"] = os.getpid()
         duration = float(hours) * 3600 if not until_stopped else None
         start = monotonic_fn()
@@ -510,10 +546,15 @@ def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
             "run_id": state["run_id"],
             "stops_only_when_operator_requests": bool(until_stopped),
             "ends_after_max_hours": None if until_stopped else float(hours),
-            "max_pages_per_utc_day": max_pages,
+            "max_pages_per_utc_day": None if no_fixed_quotas else max_pages,
+            "no_fixed_quotas": bool(no_fixed_quotas),
+            "search_provider": search_provider,
             "note": (
-                "When queue/crawl budget is exhausted, stay idle and check "
-                "again after midnight UTC. Mac must stay awake."
+                "Continuous discovery runs until manual stop. There are no "
+                "arbitrary daily page/search counts in open-ended mode; "
+                "per-host pacing, robots, access and model rights still apply."
+                if no_fixed_quotas else
+                "Daily quotas still apply. Mac must stay awake."
             ),
         }, ensure_ascii=False), flush=True)
         try:
@@ -529,7 +570,8 @@ def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
                 if result["outcomes"] and result["outcomes"][0].get(
                         "status") in (
                             "queue_empty", "daily_budget_exhausted",
-                            "daily_page_cap_reached"):
+                            "daily_page_cap_reached", "publisher_pacing_wait",
+                            "publisher_daily_quota"):
                     state["status"] = "idle_waiting_for_allowed_work"
                 else:
                     state["status"] = "running"

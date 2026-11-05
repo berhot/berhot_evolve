@@ -120,7 +120,8 @@ def start_detached(store, project_root, profile=PROFILE):
     logfile = logdir / (profile + "-continuous.log")
     cmd = [sys.executable, "-u", "-m", "evolve",
            "focus-overnight", "--network", "--profile", profile,
-           "--until-stopped", "--max-pages", "24",
+           "--until-stopped", "--no-fixed-quotas",
+           "--browser-search-provider", "duckduckgo",
            "--pages-per-cycle", "3", "--interval-minutes", "15",
            "--train-steps", "40"]
     if sys.platform == "darwin" and shutil.which("caffeinate"):
