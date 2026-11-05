@@ -62,6 +62,11 @@ def _source_error_policy(exc):
                 if code in (404, 410):
                     return ("http_" + status + "_not_found", False, 0)
                 return ("http_" + status, False, 0)
+        if reason.startswith("Redirect refused"):
+            # NoRedirect explicitly raises this for HTTP 3xx. The old
+            # fallback wrongly labelled valid canonical-URL redirects as
+            # source_policy_or_format_rejected.
+            return ("redirect_not_followed", False, 0)
         if reason.startswith("Website disallows automated access"):
             return ("robots_disallowed", False, 0)
         if (reason.startswith("Cannot verify robots.txt") or
