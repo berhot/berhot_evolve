@@ -461,7 +461,16 @@ class Store:
         run = run or {}
         if not run.get("run_id"):
             return
-        for event in run.get("recent_activity", []):
+        events = run.get("recent_activity", [])
+        # Polling Studio every second must not repeatedly write or lock
+        # SQLite for an unchanged legacy snapshot.
+        digest = hashlib.sha256(json.dumps(
+            events, ensure_ascii=False, sort_keys=True,
+        ).encode("utf-8")).hexdigest()
+        marker = "focus_activity_backfill_digest_" + str(run["run_id"])
+        if self.get(marker) == digest:
+            return
+        for event in events:
             if not isinstance(event, dict) or not event.get("at_utc"):
                 continue
             self.append_focus_activity(
@@ -469,6 +478,7 @@ class Store:
                 event.get("kind", "activity"), phase=event.get("phase", ""),
                 detail=event.get("detail", ""), url=event.get("url"),
             )
+        self.put(marker, digest)
 
     def focus_activity(self, profile, *, after=None, before=None, limit=150):
         """Cursor-paginate all saved events without truncating history.
