@@ -44,10 +44,11 @@ def evidence_report(store, limit=80, host=None):
     existing = store.get("v121_last_cycle") or {}
     readiness = existing.get("heldout_readiness") or {}
     expected = readiness.get("source_hosts") or {}
+    filtered_host = host
     by_host = {}
     entries = []
     for row in rows:
-        host = row["host"]
+        source_host = row["host"]
         rights = row["rights_status"]
         approved = rights in _RIGHTS and not bool(row["noai"])
         file = _within(store.root / "web_corpus" / "clean",
@@ -76,8 +77,8 @@ def evidence_report(store, limit=80, host=None):
         else:
             eligibility = "approved_source_has_heuristic_definitions"
 
-        group = by_host.setdefault(host, {
-            "host": host, "archived_articles": 0,
+        group = by_host.setdefault(source_host, {
+            "host": source_host, "archived_articles": 0,
             "approved_articles": 0, "unknown_rights_articles": 0,
             "publisher_noai_articles": 0,
             "candidate_definition_topics": set(),
@@ -91,7 +92,7 @@ def evidence_report(store, limit=80, host=None):
         if approved:
             group["approved_definition_topics"].update(examples)
         entries.append({
-            "url": row["url"], "title": row["title"], "host": host,
+            "url": row["url"], "title": row["title"], "host": source_host,
             "rights": rights, "noai": bool(row["noai"]),
             "rights_evidence_url": row["rights_evidence_url"],
             "words": int(row["words"]), "status": eligibility,
@@ -119,7 +120,7 @@ def evidence_report(store, limit=80, host=None):
                if e["status"] != "approved_source_has_heuristic_definitions"]
     return {
         "status": "review_only", "sources_examined": len(rows),
-        "filtered_host": host,
+        "filtered_host": filtered_host,
         "hosts": summary, "sources": entries,
         "needs_manual_rights_review": [
             {"url": e["url"], "host": e["host"],

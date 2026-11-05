@@ -1804,3 +1804,41 @@ Scoring is read-only, using the actual production lexical/identity score plus th
 These scores are DEVELOPMENT DIAGNOSTICS on already inspected material. They do not establish a fresh blinded evaluation, a new truth-verification system or semantic generalization. A genuinely independent holdout requires additional rights-cleared publishers, an isolated test pack and enough human-graded hard alternatives.
 
 All existing checkpoints, source archives and training manifests remain unchanged.
+
+## v1.26: Rights-first evidence expansion triage (read-only)
+
+Run `python3 -m evolve v126-expansion --limit 80` to inspect existing
+archived sources and prioritize REAL, SHA-verified source excerpts for
+potential human licensing and factual review, without network requests.
+Optionally filter by an exact host:
+
+```bash
+python3 -m evolve v126-expansion --host science.nasa.gov --limit 40
+python3 -m evolve v126-expansion --host oceanservice.noaa.gov --limit 40
+python3 -m evolve v125-pairs
+```
+
+`queue_to_review` puts articles mentioning a currently covered concept
+before articles containing entirely new explicit definition topics.
+Each item gives its exact source text, source URL, rights status,
+candidate topic and exact-quote SHA. It separately highlights possible
+page-heading artifacts like `currents tutorial`, and notes any quote for
+a topic appearing from a different publisher.
+
+Rights remain UNKNOWN until a human checks the PARTICULAR article,
+the publisher's usage/license statement and any third-party text/graphics.
+These diagnostics never auto-authorize Wikipedia or other open licenses.
+Candidate extraction is an unverified lexical heuristic; quote existence
+does not mean factual correctness, legal rights, or training eligibility.
+
+A second fix in v1.26 ensures `v122-evidence` reports the correctly
+requested `filtered_host` rather than accidentally returning the last
+host encountered in its SQL rows.
+
+**No new weights or training examples** are created by this command.
+Previously inspected NOAA test records are not fresh blind tests.
+After manually reviewing rights-eligible candidates using the existing
+`v117-review-rights` process, rerun `v125-pairs` to measure whether
+the approved corpus really contains additional competing explanations.
+Collect and independently label unseen publisher data for a true blind
+semantic evaluation before claiming improvement over lexical ranking.
