@@ -187,6 +187,10 @@ class DefinitionUnitTests(unittest.TestCase):
         self.assertIsNone(extract_definition(
             "Transcript Sun is a star located in our solar system."))
         self.assertEqual(
+            extract_definition(
+                "Transcript is a written record of spoken language."),
+            "transcript")
+        self.assertEqual(
             title_evidence(
                 "Transcript is a written record of spoken language.",
                 "transcript"),
