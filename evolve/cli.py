@@ -33,6 +33,8 @@ def main(argv=None):
                              help="Do not follow links across different hosts")
     corpus_crawl = sub.add_parser("corpus-crawl", help="Bounded existing-queue HTML extraction and independent raw/clean corpus archive")
     corpus_crawl.add_argument("--limit", type=int, default=5)
+    corpus_crawl.add_argument("--host", default=None,
+                              help="Only crawl already-queued URLs on this exact host, e.g. oceanservice.noaa.gov")
     retry_parser = sub.add_parser("retry-url", help="Retry one failed URL after correcting its connection problem")
     retry_parser.add_argument("--url", required=True)
 
@@ -389,7 +391,7 @@ def main(argv=None):
             elif args.command == "corpus-crawl":
                 from .web_discovery import discover_web
                 result = discover_web(store, settings, limit=args.limit,
-                                      review_questions=False)
+                                      review_questions=False, host=args.host)
             elif args.command == "errors":
                 result = {"errors": store.recent_web_errors(args.limit)}
             elif args.command == "retry-url":
