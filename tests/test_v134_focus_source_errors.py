@@ -69,6 +69,8 @@ class FocusSourceFailureTests(unittest.TestCase):
             "HTTP 404": ("http_404_not_found", False),
             "HTTP 403": ("http_403_access_denied", False),
             "HTTP 301": ("redirect_not_followed", False),
+            "Redirect refused; register final URL as an explicit seed if authorized":
+                ("redirect_not_followed", False),
             "Website disallows automated access to this URL":
                 ("robots_disallowed", False),
             "HTTP 429": ("http_429_rate_limited", True),
