@@ -97,6 +97,14 @@ def audit_model_and_ownership(store, settings=None):
     research_log_count = int(store.db.execute(
         "SELECT COUNT(*) FROM runs WHERE action='v119_research'"
     ).fetchone()[0])
+    from .v120_grounded import _LABEL_POLICY, _inventory, _inventory_revision
+    old_ranker = store.get("v120_ranker_latest") or {}
+    current_inventory_digest = _inventory_revision(_inventory(store))
+    ranker_usable_now = bool(
+        old_ranker.get("accepted_by_validation") and
+        old_ranker.get("label_policy") == _LABEL_POLICY and
+        old_ranker.get("inventory_sha256") == current_inventory_digest
+    )
     v118qa = store.get("v118_qa_latest")
     v118_history = store.get("v118_qa_history", []) or []
     studio_jobs = store.get("v118_job_history", []) or []
@@ -163,6 +171,11 @@ def audit_model_and_ownership(store, settings=None):
                 "local_source_quiz_is_neural_generalization": False,
             },
             "v120_grounded_question_answering": {
+                "current_definition_label_policy": _LABEL_POLICY,
+                "saved_ranker_usable_under_current_label_policy": ranker_usable_now,
+                "historical_ranker_metrics_not_revalidated_after_label_fix":
+                    not ranker_usable_now and bool(old_ranker),
+                "previous_training_history_preserved": True,
                 "ranker_checkpoint": _checkpoint(
                     store.get("v120_ranker_latest"), store.root),
                 "candidate_checkpoint": _checkpoint(
