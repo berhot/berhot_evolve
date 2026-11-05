@@ -716,6 +716,9 @@ def cycle(store, settings, state, pages=3, train_steps=40,
             key: sitemap.get(key) for key in (
                 "status", "host", "network_requests",
                 "sitemap_documents_checked", "candidate_urls_found",
+                "sitemap_indexes_parsed", "sitemap_urlsets_parsed",
+                "sitemap_locations_listed", "topical_urls_after_filter",
+                "sitemap_failures", "sitemap_more_documents_unchecked",
                 "backlog_remaining", "retry_after_seconds",
             )
         }
@@ -728,7 +731,15 @@ def cycle(store, settings, state, pages=3, train_steps=40,
                     " · " + str(sitemap.get("status")) + " · " +
                     str(queued_sitemap) + " new candidate URLs · " +
                     str(sitemap.get("network_requests", 0)) +
-                    " discovery requests"))
+                    " discovery requests · " +
+                    str(sitemap.get("sitemap_indexes_parsed", 0)) +
+                    " XML indexes · " +
+                    str(sitemap.get("sitemap_urlsets_parsed", 0)) +
+                    " URL sets · " +
+                    str(sitemap.get("sitemap_locations_listed", 0)) +
+                    " listed URLs" +
+                    (" · " + ",".join(sitemap.get("sitemap_failures", []))
+                     if sitemap.get("sitemap_failures") else "")))
     outcomes = []
     pages_at_cycle_start = int(state["pages_attempted"])
     pacing_waits = 0
