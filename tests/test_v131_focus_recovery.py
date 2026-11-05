@@ -99,7 +99,7 @@ class FocusRecoveryTests(unittest.TestCase):
                 ("يتحدث هذا التقرير عن الطقس والأجهزة والرياضة والتقنية. " * 12) +
                 "</article>"
                 '<a href="https://history.example.org/saudi-history">'
-                "تاريخ الدولة السعودية الأولى في الدرعية</a>"
+                "اقرأ التفاصيل</a>"
                 "</body></html>"
             )
             try:
