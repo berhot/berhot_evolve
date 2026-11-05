@@ -99,6 +99,7 @@ footer{color:var(--muted);font-size:11px;text-align:center;margin-top:24px}
   <div><div class="metric-label">Started at</div><strong id="focus-started">Not started</strong><div class="small muted" id="focus-run-id">No session yet</div></div>
   <div><div class="metric-label">Current work</div><strong id="focus-phase">Not running</strong><div class="small muted" id="focus-live-status">Waiting for the agent to start</div></div>
 </div>
+<div class="eyebrow" style="margin-top:17px">Current worker session · resets on restart</div>
 <div class="focus-grid">
 <div class="focus-tile"><div class="metric-label">Evidence ranker · model parameters</div><div class="metric-number" id="focus-ranker-size">—</div><div class="metric-sub" id="focus-ranker-trained">Checkpoint status</div></div>
 <div class="focus-tile"><div class="metric-label">Arabic byte model · architecture parameters</div><div class="metric-number" id="focus-params">—</div><div class="metric-sub" id="focus-trained">Not trained yet</div></div>
@@ -106,11 +107,20 @@ footer{color:var(--muted);font-size:11px;text-align:center;margin-top:24px}
 <div class="focus-tile"><div class="metric-label">Neural training steps · this run</div><div class="metric-number" id="focus-steps">0</div><div class="metric-sub" id="focus-questions">0 research questions (unverified)</div></div>
 </div>
 <div class="focus-grid" aria-label="Live factual reading and training counters">
-  <div class="focus-tile"><div class="metric-label">Pages successfully read</div><div class="metric-number" id="focus-read-pages">0</div><div class="metric-sub" id="focus-html-bytes">0 raw HTML bytes received</div></div>
-  <div class="focus-tile"><div class="metric-label">UTF-8 byte tokens extracted</div><div class="metric-number" id="focus-extracted-tokens">0</div><div class="metric-sub" id="focus-extracted-text">0 chars · 0 words · not trained yet</div></div>
-  <div class="focus-tile"><div class="metric-label">Unique archived byte tokens</div><div class="metric-number" id="focus-unique-tokens">0</div><div class="metric-sub">Deduplicated research text, not neural learning</div></div>
-  <div class="focus-tile"><div class="metric-label">Byte tokens processed in training</div><div class="metric-number" id="focus-trained-tokens">0</div><div class="metric-sub" id="focus-train-progress">0 / 0 optimizer steps · no updates</div></div>
+  <div class="focus-tile"><div class="metric-label">Pages successfully read · this run</div><div class="metric-number" id="focus-read-pages">0</div><div class="metric-sub" id="focus-html-bytes">0 raw HTML bytes received</div></div>
+  <div class="focus-tile"><div class="metric-label">UTF-8 byte tokens extracted · this run</div><div class="metric-number" id="focus-extracted-tokens">0</div><div class="metric-sub" id="focus-extracted-text">0 chars · 0 words · not trained yet</div></div>
+  <div class="focus-tile"><div class="metric-label">Unique archived byte tokens · this run</div><div class="metric-number" id="focus-unique-tokens">0</div><div class="metric-sub">Deduplicated research text, not neural learning</div></div>
+  <div class="focus-tile"><div class="metric-label">Byte tokens processed in training · this run</div><div class="metric-number" id="focus-trained-tokens">0</div><div class="metric-sub" id="focus-train-progress">0 / 0 optimizer steps · no updates</div></div>
 </div>
+<div class="eyebrow" style="margin-top:18px">Saved Saudi history research · across all worker runs</div>
+<div class="focus-grid" aria-label="Persistent Saudi-history research totals">
+  <div class="focus-tile"><div class="metric-label">Archived article URLs · saved</div><div class="metric-number" id="focus-saved-articles">0</div><div class="metric-sub">Persists after restarts · research only</div></div>
+  <div class="focus-tile"><div class="metric-label">Unique saved Arabic texts</div><div class="metric-number" id="focus-saved-unique">0</div><div class="metric-sub">Deduplicated by cleaned SHA-256</div></div>
+  <div class="focus-tile"><div class="metric-label">Saved cleaned UTF-8 bytes</div><div class="metric-number" id="focus-saved-bytes">0</div><div class="metric-sub">On disk · not training tokens</div></div>
+  <div class="focus-tile"><div class="metric-label">Source-derived research questions · saved</div><div class="metric-number" id="focus-saved-questions">0</div><div class="metric-sub">Unverified historical questions</div></div>
+</div>
+<div class="mline"><span class="muted">Fetch attempts · this run</span><strong id="focus-attempts">0</strong></div>
+<div class="mline"><span class="muted">Source failures · this run</span><strong id="focus-fetch-errors">0</strong></div>
 <div class="mline"><span class="muted">Currently reading / processing</span><strong class="focus-source" id="focus-current-url">—</strong></div>
 <div class="mline"><span class="muted">Current training batch loss</span><strong id="focus-train-loss">—</strong></div>
 <div class="focus-activity-toolbar"><strong class="metric-label">Live worker activity · saved event history</strong><span id="focus-activity-connection" class="tag">Connecting…</span></div>
@@ -368,6 +378,13 @@ async function refresh(){
    " current optimizer steps · "+(f.training_steps_this_run||0)+" this run");
  text("focus-train-loss",f.current_training_loss??"—");
  text("focus-current-url",f.current_url||"—");
+ const saved=f.saved_research_all_runs||{};
+ text("focus-saved-articles",Number(saved.source_urls||0).toLocaleString());
+ text("focus-saved-unique",Number(saved.unique_texts||0).toLocaleString());
+ text("focus-saved-bytes",Number(saved.unique_clean_utf8_bytes||0).toLocaleString());
+ text("focus-saved-questions",Number(saved.source_questions||0).toLocaleString());
+ text("focus-attempts",Number(f.pages_attempted||0).toLocaleString()+" attempted HTTPS page fetches");
+ text("focus-fetch-errors",Number(f.source_errors_this_run||0).toLocaleString()+" requests failed or were rejected");
  focusTimer();
  $("focus-state").className="tag "+(f.process_running?"good":"");
  text("focus-pages",f.unique_pages_added||0);
@@ -570,6 +587,8 @@ function renderInspector(){
   else inspectorInfo(stage,"The worker has an active process and saved heartbeat. This proves the process is alive—not that the model is conscious or continuously improving.");
   const truth=inspectorSection(root,"Learning evidence — not a simulation");
   inspectorKey(truth,"Research articles read this run",w.pages_read_this_run||0);
+  inspectorKey(truth,"Archived article URLs across all runs",r.archived_research_records||0);
+  inspectorKey(truth,"Unique cleaned research bytes saved",r.unique_clean_utf8_bytes_all_runs||0);
   inspectorKey(truth,"Training status",w.training_status||"not checked");
   inspectorKey(truth,"Latest accepted focus-model checkpoint",t.last_accepted_checkpoint?.sha256||"NONE");
   inspectorKey(truth,"Independent verified autonomous historical answers",q.verified_autonomous_answers||0);
@@ -586,8 +605,9 @@ function renderInspector(){
  }
  else if(inspectorView==="research"){
   const stage=inspectorSection(root,"Saved research discoveries");
-  inspectorInfo(stage,(r.archived_research_records||0)+" saved source records from "+
-   (r.independent_publisher_hosts||0)+" hosts. These records show archived research, not automatic model knowledge or training permission.");
+  inspectorInfo(stage,(r.archived_research_records||0)+" saved article URLs across all runs; "+
+   (r.source_records||[]).length+" recently indexed records shown from "+
+   (r.independent_publisher_hosts||0)+" recently observed hosts. Research archiving is not neural training.");
   inspectorKey(stage,"Pending URLs",r.pending_frontier_urls||0);
   const recovery=w.last_archive_recovery||{};
   inspectorKey(stage,"Additional links recovered from cached HTML",recovery.new_candidate_urls||0);
