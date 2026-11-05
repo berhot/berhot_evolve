@@ -8,8 +8,11 @@ from datetime import datetime, timezone, timedelta
 from urllib.parse import urljoin, urlsplit, unquote
 import hashlib
 import json
+import os
 import signal
 import time
+
+from .focus_control import acquire_lock, release_lock, stop_requested
 
 from .focus_data import get_profile, topic_relevance, arabic_curiosity, review_leads
 from .focus_training import train_if_eligible, readiness as training_readiness
@@ -91,6 +94,13 @@ def init_state(store, profile_name, extra_urls=None, max_pages=24):
         "finished_at_utc": None,
         "status": "initialized",
         "max_pages_this_run": int(max_pages),
+        "max_pages_per_utc_day": int(max_pages),
+        "pages_attempted_today": 0,
+        "pages_day_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "until_stopped": False,
+        "worker_pid": None,
+        "heartbeat_at_utc": now,
+        "stop_requested": False,
         "pages_attempted": 0, "pages_archived": 0,
         "new_unique_pages": 0, "exact_duplicate_pages": 0,
         "skipped_off_topic_or_non_arabic": 0,
@@ -133,8 +143,32 @@ def _topic_link(url, profile):
     return any(x.casefold() in raw for x in profile["url_terms"])
 
 
+def _rollover_if_new_utc_day(state):
+    """Refresh the finite research queue once daily for the continuous mode.
+
+    Page count is per UTC day, never unbounded; daily quota and URL robots
+    rules are enforced separately by the existing fetcher.
+    """
+    if not state.get("until_stopped"):
+        return False
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if state["pages_day_utc"] == today:
+        return False
+    state["pages_day_utc"] = today
+    state["pages_attempted_today"] = 0
+    state["_seen"] = set()
+    state["_queue"] = []
+    for seed in state["_seeded"]:
+        _enqueue(state, seed)
+    return True
+
+
 def _run_page(store, settings, state, profile, fetcher=None,
               sleep_fn=time.sleep):
+    _rollover_if_new_utc_day(state)
+    if state.get("until_stopped") and (
+            state["pages_attempted_today"] >= state["max_pages_per_utc_day"]):
+        return {"status": "daily_page_cap_reached"}
     if not state["_queue"]:
         return {"status": "queue_empty"}
     item = state["_queue"].pop(0)
@@ -142,7 +176,8 @@ def _run_page(store, settings, state, profile, fetcher=None,
     if url in state["_seen"]:
         return {"status": "already_seen", "url": url}
     state["_seen"].add(url)
-    if state["pages_attempted"] >= state["max_pages_this_run"]:
+    if (not state.get("until_stopped") and
+            state["pages_attempted"] >= state["max_pages_this_run"]):
         return {"status": "run_cap_reached"}
     quota = budget_status(store, settings)
     if quota["remaining"] <= 0:
@@ -153,6 +188,7 @@ def _run_page(store, settings, state, profile, fetcher=None,
     key = "web_requests_" + quota["day_utc"]
     store.put(key, quota["used"] + 1)
     state["pages_attempted"] += 1
+    state["pages_attempted_today"] += 1
     try:
         # fetch_page already enforces TLS, DNS public-only, robots, MIME,
         # response size and refusal to follow redirects.
@@ -250,10 +286,16 @@ def cycle(store, settings, state, pages=3, train_steps=40,
     profile = get_profile(state["profile"])
     outcomes = []
     for i in range(int(pages)):
-        if state["pages_attempted"] >= state["max_pages_this_run"]:
+        if stop_requested(store, state["run_id"], state["profile"]):
+            outcomes.append({"status": "stop_requested"})
+            break
+        if (not state.get("until_stopped") and
+                state["pages_attempted"] >= state["max_pages_this_run"]):
             break
         result = _run_page(store, settings, state, profile, fetcher=fetcher)
-        if result["status"] in ("queue_empty", "daily_budget_exhausted"):
+        if result["status"] in (
+                "queue_empty", "daily_budget_exhausted",
+                "daily_page_cap_reached"):
             outcomes.append(result)
             break
         outcomes.append(result)
@@ -262,7 +304,11 @@ def cycle(store, settings, state, pages=3, train_steps=40,
             sleep_fn(max(2.0, float(settings.get("crawl_delay_seconds", 2))))
     observations = store.get(_HISTORY + state["profile"], []) or []
     state["research_review_leads"] = review_leads(observations)[:20]
-    training = train_if_eligible(store, state["profile"], steps=train_steps)
+    if stop_requested(store, state["run_id"], state["profile"]):
+        training = {"status": "skipped_stop_requested", "steps": 0,
+                    "weights_updated": False}
+    else:
+        training = train_if_eligible(store, state["profile"], steps=train_steps)
     state["training_status"] = training["status"]
     state["latest_training"] = {
         key: training.get(key) for key in (
@@ -337,69 +383,116 @@ def report(store, profile_name="saudi-history-ar"):
 def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
         interval_minutes=15, max_pages=24, pages_per_cycle=3,
         train_steps=40, extra_urls=None, fetcher=None, sleep_fn=time.sleep,
-        monotonic_fn=time.monotonic):
-    if not 0 < float(hours) <= 12:
+        monotonic_fn=time.monotonic, until_stopped=False):
+    """User-started local process; continuous mode ends ONLY on manual stop.
+
+    Source queue and page caps reset at UTC midnight, but network permissions,
+    robots, TLS, license review and unchanged-dataset training restrictions do
+    not reset. With no new authorized work, it remains awake but idle.
+    """
+    if not until_stopped and not 0 < float(hours) <= 12:
         raise ValueError("hours must be within (0, 12]")
     if not 1 <= int(interval_minutes) <= 60:
         raise ValueError("interval-minutes must be 1..60")
-    state = init_state(store, profile_name, extra_urls, max_pages=max_pages)
-    duration = float(hours)*3600
-    start = monotonic_fn()
-    end = start + duration
-    stop = False
-    previous_signals = {}
-    def on_stop(_sig, _frame):
-        nonlocal stop
-        stop = True
-    # Signal registration is possible only in the main thread.
-    for signum in (signal.SIGTERM, signal.SIGINT):
-        try:
-            previous_signals[signum] = signal.getsignal(signum)
-            signal.signal(signum, on_stop)
-        except ValueError:
-            continue
-    state["status"] = "running"
-    print(json.dumps({
-        "status": "running", "profile": profile_name,
-        "run_id": state["run_id"],
-        "ends_after_max_hours": float(hours),
-        "max_pages": max_pages,
-        "note": "Keep Mac on power, lid open; sleep stops the worker.",
-    }, ensure_ascii=False), flush=True)
+    if not 1 <= int(pages_per_cycle) <= 8:
+        raise ValueError("pages-per-cycle must be 1..8")
+    lock_handle = acquire_lock(store, profile_name)
     try:
-        while not stop and monotonic_fn() < end:
-            result = cycle(store, settings, state, pages=pages_per_cycle,
-                           train_steps=train_steps, fetcher=fetcher,
-                           sleep_fn=sleep_fn)
-            state["hours_elapsed"] = round(
-                (monotonic_fn() - start) / 3600, 3)
-            store.put(_KEY + profile_name, _public_state(state))
-            print(json.dumps(result, ensure_ascii=False), flush=True)
-            if state["pages_attempted"] >= state["max_pages_this_run"]:
-                break
-            remaining = end - monotonic_fn()
-            if remaining <= 0:
-                break
-            # Responsive to SIGTERM without long full-interval sleeps.
-            cadence = min(remaining, int(interval_minutes)*60)
-            while cadence > 0 and not stop:
-                chunk = min(cadence, 5)
-                sleep_fn(chunk)
-                cadence -= chunk
-    finally:
-        state["finished_at_utc"] = _utc()
-        state["status"] = "stopped" if stop else "completed"
-        state["hours_elapsed"] = round(
-            max(0.0, monotonic_fn() - start)/3600, 3)
-        state["updated_at_utc"] = _utc()
+        state = init_state(store, profile_name, extra_urls, max_pages=max_pages)
+        state["until_stopped"] = bool(until_stopped)
+        state["worker_pid"] = os.getpid()
+        duration = float(hours) * 3600 if not until_stopped else None
+        start = monotonic_fn()
+        end = start + duration if duration is not None else None
+        stop = False
+        previous_signals = {}
+
+        def on_stop(_sig, _frame):
+            nonlocal stop
+            stop = True
+
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            try:
+                previous_signals[signum] = signal.getsignal(signum)
+                signal.signal(signum, on_stop)
+            except ValueError:
+                continue
+
+        def operator_stop():
+            return bool(
+                stop or stop_requested(store, state["run_id"], profile_name))
+
+        state["status"] = "running"
         store.put(_KEY + profile_name, _public_state(state))
-        for sig, prior in previous_signals.items():
-            signal.signal(sig, prior)
         print(json.dumps({
-            "status": state["status"], "profile": profile_name,
-            "pages_archived": state["pages_archived"],
-            "unique_pages": state["new_unique_pages"],
-            "question_candidates": state["candidate_questions_created_this_run"],
-            "training_steps": state["training_steps_this_run"],
+            "status": "running", "profile": profile_name,
+            "run_id": state["run_id"],
+            "stops_only_when_operator_requests": bool(until_stopped),
+            "ends_after_max_hours": None if until_stopped else float(hours),
+            "max_pages_per_utc_day": max_pages,
+            "note": (
+                "When queue/crawl budget is exhausted, stay idle and check "
+                "again after midnight UTC. Mac must stay awake."
+            ),
         }, ensure_ascii=False), flush=True)
-    return _public_state(state)
+        try:
+            while not operator_stop() and (
+                    end is None or monotonic_fn() < end):
+                _rollover_if_new_utc_day(state)
+                result = cycle(store, settings, state, pages=pages_per_cycle,
+                               train_steps=train_steps, fetcher=fetcher,
+                               sleep_fn=sleep_fn)
+                state["hours_elapsed"] = round(
+                    (monotonic_fn() - start) / 3600, 3)
+                state["heartbeat_at_utc"] = _utc()
+                if result["outcomes"] and result["outcomes"][0].get(
+                        "status") in (
+                            "queue_empty", "daily_budget_exhausted",
+                            "daily_page_cap_reached"):
+                    state["status"] = "idle_waiting_for_allowed_work"
+                else:
+                    state["status"] = "running"
+                store.put(_KEY + profile_name, _public_state(state))
+                print(json.dumps(result, ensure_ascii=False), flush=True)
+                if not until_stopped and (
+                        state["pages_attempted"] >= state["max_pages_this_run"]):
+                    break
+                if operator_stop():
+                    break
+                remaining = (
+                    (end - monotonic_fn()) if end is not None
+                    else float(interval_minutes * 60))
+                if remaining <= 0:
+                    break
+                cadence = min(remaining, int(interval_minutes) * 60)
+                while cadence > 0 and not operator_stop():
+                    chunk = min(cadence, 5)
+                    sleep_fn(chunk)
+                    cadence -= chunk
+                    # Keep the UI heartbeat fresh while idle, without
+                    # doing any additional network fetches or training.
+                    state["heartbeat_at_utc"] = _utc()
+                    state["updated_at_utc"] = _utc()
+                    store.put(_KEY + profile_name, _public_state(state))
+        finally:
+            requested = operator_stop()
+            state["finished_at_utc"] = _utc()
+            state["status"] = "stopped" if requested else "completed"
+            state["stop_requested"] = requested
+            state["hours_elapsed"] = round(
+                max(0.0, monotonic_fn() - start) / 3600, 3)
+            state["updated_at_utc"] = _utc()
+            state["heartbeat_at_utc"] = _utc()
+            store.put(_KEY + profile_name, _public_state(state))
+            for sig, prior in previous_signals.items():
+                signal.signal(sig, prior)
+            print(json.dumps({
+                "status": state["status"], "profile": profile_name,
+                "pages_archived": state["pages_archived"],
+                "unique_pages": state["new_unique_pages"],
+                "candidate_questions": state["candidate_questions_created_this_run"],
+                "training_steps": state["training_steps_this_run"],
+            }, ensure_ascii=False), flush=True)
+        return _public_state(state)
+    finally:
+        release_lock(lock_handle)
