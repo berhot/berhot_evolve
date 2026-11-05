@@ -171,6 +171,14 @@ class StudioControllerTests(unittest.TestCase):
                 status = controller.status()
                 self.assertEqual(status["archived_pages"], 0)
                 self.assertEqual(status["rights_eligible_articles"], 0)
+                self.assertEqual(status["studio_api_version"], 4)
+                self.assertIn("model_size", status)
+                self.assertEqual(
+                    status["model_size"]["ranker"]["architecture_parameters"], 109)
+                self.assertEqual(
+                    status["model_size"]["saudi_history_arabic"][
+                        "architecture_parameters"], 79168)
+                self.assertFalse(status["focus_agent"]["process_running"])
                 self.assertFalse(status["auto"]["enabled"])
                 started = controller.submit("language", steps=2)
                 self.assertEqual(started["status"], "started")
