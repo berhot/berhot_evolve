@@ -229,6 +229,15 @@ class LearningController:
                         "pending_research_urls", 0),
                     "search_queries_this_run": focus_run.get(
                         "search_queries_this_run", 0),
+                    "search_status": focus_run.get(
+                        "search_status", "not_checked"),
+                    "search_diagnostic": {
+                        key: (focus_run.get("last_search_diagnostic") or {}).get(key)
+                        for key in ("status", "provider", "error_type",
+                                    "error_phase", "hint", "retry_after_seconds")
+                        if (focus_run.get("last_search_diagnostic") or {}).get(key)
+                        is not None
+                    },
                     "cross_publisher_links_queued": focus_run.get(
                         "cross_host_links_queued_this_run", 0),
                     "keyless_browser_search": True,
