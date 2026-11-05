@@ -58,6 +58,13 @@ class InspectorTests(unittest.TestCase):
                     "last_cycle_page_target": 30,
                     "search_status": "search_pacing_wait",
                     "pending_research_urls": 0,
+                    "last_cycle_idle_reason":
+                        "no_pending_urls_and_search_produced_no_candidates",
+                    "last_archive_recovery": {
+                        "source_snapshots_checked": 5,
+                        "new_candidate_urls": 0,
+                        "network_requests": 0,
+                    },
                 })
                 store.log("focus_cycle", "completed", {
                     "run_id": "unit-inspector", "cycles": 1,
@@ -73,6 +80,10 @@ class InspectorTests(unittest.TestCase):
                                  "search_pacing_wait")
                 self.assertEqual(result["latest_cycle"]["last_reason"],
                                  "queue_empty")
+                self.assertEqual(result["worker"]["last_cycle_idle_reason"],
+                                 "no_pending_urls_and_search_produced_no_candidates")
+                self.assertEqual(result["worker"]["last_archive_recovery"]
+                                 ["source_snapshots_checked"], 5)
                 self.assertEqual(
                     result["curiosity"]["unverified_question_count"], 1)
                 self.assertEqual(
@@ -248,6 +259,9 @@ class InspectorTests(unittest.TestCase):
         self.assertIn("textContent", html)
         self.assertIn("full worker event history", html)
         self.assertIn("separately_recorded_verified_answers", html)
+        self.assertIn("last_cycle_idle_reason", html)
+        self.assertIn("focus-recent-activity", html)
+        self.assertIn("Gradually load all saved events on scroll", html)
 
     def test_ui_javascript_is_syntactically_valid_when_node_installed(self):
         binary = shutil.which("node")
