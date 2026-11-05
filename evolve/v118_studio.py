@@ -468,6 +468,8 @@ class LearningController:
                     "cycles_completed_this_run": run.get("cycles_completed", 0),
                     "last_cycle_attempts": run.get("last_cycle_pages_attempted", 0),
                     "last_cycle_target": run.get("last_cycle_page_target", 0),
+                    "last_cycle_idle_reason": run.get("last_cycle_idle_reason"),
+                    "last_archive_recovery": run.get("last_archive_recovery"),
                     "training_steps_this_run": run.get(
                         "training_steps_this_run", 0),
                     "training_status": run.get("training_status", "not_checked"),
