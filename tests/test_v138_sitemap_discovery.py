@@ -82,11 +82,11 @@ class SitemapDiscoveryTests(unittest.TestCase):
         host = "saudipedia.com"
         root = "https://" + host
         robots = (
-            "User-agent: *\\nAllow: /\\nDisallow: /api/\\n"
-            "Sitemap: " + root + "/sitemap.xml\\n"
-            "Sitemap: " + root + "/en/sitemap.xml\\n"
-            "Sitemap: " + root + "/fr/sitemap.xml\\n"
-            "Sitemap: " + root + "/de/sitemap.xml\\n"
+            "User-agent: *\nAllow: /\nDisallow: /api/\n"
+            "Sitemap: " + root + "/sitemap.xml\n"
+            "Sitemap: " + root + "/en/sitemap.xml\n"
+            "Sitemap: " + root + "/fr/sitemap.xml\n"
+            "Sitemap: " + root + "/de/sitemap.xml\n"
         ).encode()
         index = (
             "<sitemapindex><sitemap><loc>" + root +
@@ -127,7 +127,7 @@ class SitemapDiscoveryTests(unittest.TestCase):
         requested = []
         files = {
             root + "/robots.txt": (
-                b"User-agent: *\\nDisallow: /ar/\\n"
+                b"User-agent: *\nDisallow: /ar/\n"
                 b"Sitemap: https://saudipedia.com/sitemap.xml",
                 "text/plain"),
             root + "/sitemap.xml": (
