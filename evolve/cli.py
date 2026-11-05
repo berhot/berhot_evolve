@@ -41,9 +41,11 @@ def main(argv=None):
         help="Keyless headless search; Google/Bing refuse unattended access while their policies prohibit it")
     focus_stop = sub.add_parser("focus-stop", help="Request graceful stop of the running Saudi-history worker")
     focus_stop.add_argument("--profile", choices=["saudi-history-ar"], default="saudi-history-ar")
-    focus_run.add_argument("--interval-minutes", type=int, default=15)
+    focus_run.add_argument("--interval-minutes", type=int, default=2,
+        help="Pause in minutes AFTER each research cycle (1..60); use 2 for frequent discovery")
     focus_run.add_argument("--max-pages", type=int, default=24)
-    focus_run.add_argument("--pages-per-cycle", type=int, default=3)
+    focus_run.add_argument("--pages-per-cycle", type=int, default=20,
+        help="Actual permitted page fetch attempts per cycle (1..50); paced hosts do not consume slots")
     focus_run.add_argument("--train-steps", type=int, default=40)
     sub.add_parser("status", help="Show persistent learner status")
     sub.add_parser("model-audit", help="Read-only actual local knowledge, saved models, autonomy and dependency inventory")
