@@ -58,7 +58,16 @@ def _approved_pages(store, profile):
                 "rights": row["rights_status"],
                 "data": text.encode("utf-8"),
             })
-    return approved
+    # A duplicated full source at two publishers is not independent
+    # validation evidence. Keep a clean digest at most once across hosts,
+    # before any publisher split is assigned.
+    unique, seen_digests = [], set()
+    for page in approved:
+        if page["sha256"] in seen_digests:
+            continue
+        seen_digests.add(page["sha256"])
+        unique.append(page)
+    return unique
 
 
 def readiness(store, profile_name):
@@ -97,6 +106,7 @@ def readiness(store, profile_name):
         "status": "ready" if eligible else "insufficient_approved_arabic_publishers_or_text",
         "rights_eligible_arabic_pages": len(pages),
         "requires_human_per_page_rights_review": True,
+        "exact_content_sha_dedup_before_host_split": True,
         "rights_eligible_arabic_hosts": hosts,
         "source_hosts_by_split": {
             split: sorted(k for k, v in assignments.items() if v == split)
