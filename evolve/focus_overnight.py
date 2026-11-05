@@ -6,9 +6,11 @@ bypasses robots, grants licenses, or confuses fetched pages with model updates.
 """
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urljoin, urlsplit, unquote
+import gzip
 import hashlib
 import json
 import os
+from pathlib import Path
 import signal
 import time
 
@@ -135,6 +137,81 @@ def _enqueue(state, url, depth=0):
     return True
 
 
+def recover_cached_source_links(store, state, profile_name, scan_limit=6):
+    """Discover additional candidate links in previously archived HTML.
+
+    This makes no network requests and never upgrades source rights. Each
+    archived URL and immutable raw HTML digest is scanned once per profile;
+    later changed snapshots may be scanned again. The existing crawler still
+    enforces per-target TLS, public DNS, robots, MIME and size checks.
+    """
+    if not 1 <= int(scan_limit) <= 20:
+        raise ValueError("scan_limit must be 1..20")
+    key = "focus_archive_link_scans_" + profile_name
+    reviewed = store.get(key, {}) or {}
+    observations = store.get(_HISTORY + profile_name, []) or []
+    root = (store.root / "web_corpus" / "raw").resolve()
+    examined = 0
+    queued = 0
+    cross_host = 0
+    attempts = 0
+    # Keep bounded even if historical observations contain many records.
+    for record in observations[-500:]:
+        if attempts >= int(scan_limit) or len(state["_queue"]) >= 500:
+            break
+        if not isinstance(record, dict) or not isinstance(record.get("url"), str):
+            continue
+        url = record["url"]
+        row = store.db.execute(
+            "SELECT raw_path,raw_html_sha256 FROM web_corpus_sources WHERE url=?",
+            (url,),
+        ).fetchone()
+        if row is None:
+            continue
+        digest = row["raw_html_sha256"]
+        if reviewed.get(url) == digest:
+            continue
+        attempts += 1
+        raw = Path(row["raw_path"]).resolve()
+        if not raw.is_relative_to(root) or not raw.is_file():
+            # Mark this specific immutable snapshot as checked; an updated
+            # source SHA may be examined in a later run.
+            reviewed[url] = digest
+            continue
+        try:
+            with gzip.open(raw, "rb") as stream:
+                data = stream.read(2_000_001)
+            if len(data) > 2_000_000:
+                reviewed[url] = digest
+                continue
+            html = data.decode("utf-8", errors="replace")
+            targets = relevant_links(html, url, get_profile(profile_name),
+                                     max_results=30)
+        except (OSError, EOFError, UnicodeError, ValueError):
+            reviewed[url] = digest
+            continue
+        examined += 1
+        reviewed[url] = digest
+        for target in targets:
+            if _enqueue(state, target, depth=1):
+                queued += 1
+                cross_host += int(
+                    urlsplit(target).hostname != urlsplit(url).hostname)
+    store.put(key, reviewed)
+    state["links_queued_this_run"] += queued
+    state["cross_host_links_queued_this_run"] += cross_host
+    return {
+        "status": "cached_sources_scanned" if attempts else "cached_sources_exhausted",
+        "source_snapshots_checked": attempts,
+        "readable_cached_sources": examined,
+        "new_candidate_urls": queued,
+        "cross_publisher_candidates": cross_host,
+        "all_sources_scanned_for_current_snapshot": attempts == 0,
+        "network_requests": 0,
+        "candidate_urls_are_not_training_rights": True,
+    }
+
+
 def plan(profile_name="saudi-history-ar", extra_urls=None):
     profile = get_profile(profile_name)
     seeds = list(profile["seeds"])
@@ -212,6 +289,8 @@ def init_state(store, profile_name, extra_urls=None, max_pages=24):
         "last_cycle_pages_attempted": 0,
         "last_cycle_page_target": 0,
         "last_cycle_pacing_waits": 0,
+        "last_cycle_idle_reason": None,
+        "last_archive_recovery": None,
         "new_unique_pages": 0, "exact_duplicate_pages": 0,
         "skipped_off_topic_or_non_arabic": 0,
         "errors": 0,
@@ -591,6 +670,21 @@ def cycle(store, settings, state, pages=3, train_steps=40,
                      + " new source URLs" +
                      (" · " + str(search["error_type"])
                       if search.get("error_type") else "")))
+    recovery = None
+    if state.get("no_fixed_quotas") and not state["_queue"] and not stop_requested(
+            store, state["run_id"], state["profile"]):
+        # Search engines can lawfully disallow automated results. Re-examine
+        # previously archived HTML *locally* for relevant candidate links.
+        # This is not web search, fact verification or model training.
+        recovery = recover_cached_source_links(
+            store, state, state["profile"], scan_limit=6)
+        state["last_archive_recovery"] = recovery
+        _publish(store, state, "archived_source_link_discovery",
+                 event="archive_link_recovery",
+                 detail=(str(recovery["source_snapshots_checked"]) +
+                         " cached sources scanned · " +
+                         str(recovery["new_candidate_urls"]) +
+                         " new candidate URLs · 0 network requests"))
     outcomes = []
     pages_at_cycle_start = int(state["pages_attempted"])
     pacing_waits = 0
@@ -685,6 +779,27 @@ def cycle(store, settings, state, pages=3, train_steps=40,
                 (state.get("no_fixed_quotas") or checks < int(pages))):
             sleep_fn(max(2.0, float(settings.get("crawl_delay_seconds", 2))))
     completed_page_attempts = state["pages_attempted"] - pages_at_cycle_start
+    if completed_page_attempts == 0:
+        if outcomes and outcomes[0].get("status") == "queue_empty":
+            state["last_cycle_idle_reason"] = (
+                "no_pending_urls_and_search_produced_no_candidates"
+                if not state["_queue"] else "no_fetchable_url")
+        elif outcomes and outcomes[0].get("status") == "source_retry_wait":
+            state["last_cycle_idle_reason"] = "pending_sources_in_retry_cooldown"
+        elif outcomes and outcomes[0].get("status") == "publisher_pacing_wait":
+            state["last_cycle_idle_reason"] = "publisher_access_pacing"
+        else:
+            state["last_cycle_idle_reason"] = (
+                outcomes[0].get("status") if outcomes else "no_fetch_attempt")
+        _publish(
+            store, state, "research_idle_explained",
+            event="research_idle_reason",
+            detail=(state["last_cycle_idle_reason"] + " · search: " +
+                    state["search_status"] +
+                    " · pending: " + str(len(state["_queue"]))),
+        )
+    else:
+        state["last_cycle_idle_reason"] = None
     state["last_cycle_pages_attempted"] = completed_page_attempts
     state["last_cycle_page_target"] = int(pages)
     state["last_cycle_pacing_waits"] = pacing_waits
@@ -775,6 +890,8 @@ def cycle(store, settings, state, pages=3, train_steps=40,
         "pages_attempted_total": state["pages_attempted"],
         "pages_attempted_this_cycle": completed_page_attempts,
         "pages_target_this_cycle": int(pages),
+        "idle_reason": state["last_cycle_idle_reason"],
+        "archive_link_recovery": recovery,
         "publisher_pacing_waits_this_cycle": pacing_waits,
         "pages_archived_total": state["pages_archived"],
         "new_unique_pages_total": state["new_unique_pages"],
