@@ -170,35 +170,40 @@ def headless_search(query, provider="duckduckgo", *, robots_check=None,
 
 
 def _run_browser(browser, spec, query, provider, target, check):
-    from .focus_discovery import _candidate_link
-    page = browser.new_page(
-        locale="ar-SA", viewport={"width": 1180, "height": 900},
-        accept_downloads=False,
-    )
+    # Report a safe failure phase instead of hiding all browser failures
+    # behind a generic status. Never expose browser paths, cookies or HTML.
+    phase = "creating_page"
+    page = None
     try:
-        # The search engine is navigated in headless Chromium; we don't
-        # emulate a person, mask automation, spoof IPs or solve challenges.
+        page = browser.new_page(
+            locale="ar-SA", viewport={"width": 1180, "height": 900},
+            accept_downloads=False,
+        )
+        phase = "opening_search_home"
         page.goto(spec["home"], wait_until="domcontentloaded",
                   timeout=15000)
+        phase = "submitting_query"
         search = page.locator(spec["selector"]).first
         search.fill(query, timeout=7000)
         search.press("Enter", timeout=7000)
+        phase = "waiting_for_results"
         try:
             page.wait_for_load_state("domcontentloaded", timeout=12000)
         except Exception:
             pass
         current = page.url
-        # If the search redirects to a disallowed path, do not parse it.
         if (urlsplit(current).hostname != urlsplit(target).hostname or
                 not check(current)):
             return {"status": "search_redirect_disallowed",
                     "engine": provider, "results": []}
+        phase = "checking_for_challenges"
         content = (page.title() + " " +
                    page.locator("body").inner_text(timeout=5000)[:4500]
                    ).casefold()
         if any(token in content for token in _BLOCK_TEXT):
             return {"status": "search_blocked_or_challenged",
                     "engine": provider, "results": []}
+        phase = "extracting_result_links"
         try:
             page.locator(spec["results_selector"]).first.wait_for(
                 state="visible", timeout=7000)
@@ -212,10 +217,14 @@ def _run_browser(browser, spec, query, provider, target, check):
             "captcha_bypassed": False, "search_snippets_are_facts": False,
         }
     except Exception as exc:
-        # Do not echo raw browser exceptions that might contain user's
-        # system paths or arbitrary page content.
-        return {"status": "browser_search_unavailable",
-                "engine": provider, "error_type": type(exc).__name__,
-                "results": []}
+        return {
+            "status": "browser_search_unavailable", "engine": provider,
+            "error_type": type(exc).__name__, "error_phase": phase,
+            "results": [],
+        }
     finally:
-        page.close()
+        if page is not None:
+            try:
+                page.close()
+            except Exception:
+                pass
