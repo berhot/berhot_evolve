@@ -25,9 +25,11 @@ _PROFILES = {
         # Sources are *research candidates*. These publishers have restrictive
         # reuse terms. Never infer consent to AI training or bulk mirroring.
         "seeds": (
-            "https://saudipedia.com/" + quote("تاريخ المملكة العربية السعودية"),
-            "https://saudipedia.com/" + quote("الدولة السعودية الأولى"),
-            "https://saudipedia.com/" + quote("يوم التأسيس السعودي"),
+            "https://saudipedia.com/" + quote("تاريخ-المملكة-العربية-السعودية"),
+            "https://saudipedia.com/" + quote("الدولة-السعودية-الأولى"),
+            "https://saudipedia.com/" + quote("يوم-التأسيس-السعودي"),
+            "https://saudipedia.com/" + quote("الدولة-السعودية-الثانية"),
+            "https://www.spa.gov.sa/ar/N2520902",
             "https://www.spa.gov.sa/N2519731",
             "https://www.spa.gov.sa/2324675",
             "https://www.spa.gov.sa/w1857788",

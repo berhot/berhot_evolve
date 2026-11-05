@@ -163,6 +163,7 @@ def init_state(store, profile_name, extra_urls=None, max_pages=24):
         "search_queries_this_run": 0,
         "search_results_queued_this_run": 0,
         "search_status": "not_checked",
+        "last_search_diagnostic": {},
         "distinct_research_hosts": 0,
         "pending_research_urls": 0,
         "training_runs_with_new_weights": 0,
@@ -303,10 +304,35 @@ def _run_page(store, settings, state, profile, fetcher=None,
         quality = topic_relevance(content, title, profile)
         if not quality["language_ok"] or not quality["topical"] or len(content) < 400:
             state["skipped_off_topic_or_non_arabic"] += 1
+            reason = (
+                "non_arabic" if not quality["language_ok"] else
+                "off_topic" if not quality["topical"] else
+                "short_extracted_article"
+            )
+            # An Arabic hub may link to genuine historical articles even if
+            # the hub itself is too short or too broad to archive as evidence.
+            # Link hints are never trained on, and every target is separately
+            # screened by fetch_page and the article admission policy.
+            related_links = 0
+            if quality["language_ok"] and depth < 3:
+                for target in relevant_links(html, url, profile):
+                    if _enqueue(state, target, depth + 1):
+                        related_links += 1
+                        state["links_queued_this_run"] += 1
+                        state["cross_host_links_queued_this_run"] += int(
+                            urlsplit(target).hostname != host)
             _publish(store, state, "skipped_irrelevant_page", url=url,
-                     event="page_skipped", detail="not Arabic Saudi-history research")
-            return {"status": "off_topic_or_non_arabic",
-                    "url": url, "language_ratio_ar": quality["language_ratio_ar"]}
+                     event="page_skipped", detail=reason + " · " +
+                     str(related_links) + " related links queued")
+            return {
+                "status": "off_topic_or_non_arabic", "url": url,
+                "reason": reason,
+                "language_ratio_ar": quality["language_ratio_ar"],
+                "extracted_characters": len(content),
+                "keyword_hits": quality["keyword_hits"],
+                "title_keyword_hits": quality["title_keyword_hits"],
+                "related_links_queued": related_links,
+            }
         # A re-fetched source might have an earlier human license review;
         # don't silently replace that review with UNKNOWN.
         existing = store.db.execute(
@@ -425,11 +451,19 @@ def cycle(store, settings, state, pages=3, train_steps=40,
         if _enqueue(state, found):
             queued_search += 1
     state["search_status"] = search.get("status", "unknown")
+    state["last_search_diagnostic"] = {
+        key: search[key] for key in (
+            "status", "provider", "error_type", "error_phase",
+            "hint", "retry_after_seconds",
+        ) if key in search and search[key] is not None
+    }
     state["search_queries_this_run"] += search.get("queries_attempted", 0)
     state["search_results_queued_this_run"] += queued_search
     _publish(store, state, "search_finished", event="search_result",
-             detail=state["search_status"] + " · " + str(queued_search)
-             + " new source URLs")
+             detail=(state["search_status"] + " · " + str(queued_search)
+                     + " new source URLs" +
+                     (" · " + str(search["error_type"])
+                      if search.get("error_type") else "")))
     outcomes = []
     for i in range(int(pages)):
         if stop_requested(store, state["run_id"], state["profile"]):
@@ -523,6 +557,10 @@ def cycle(store, settings, state, pages=3, train_steps=40,
             "status": state["search_status"],
             "queries_attempted": search.get("queries_attempted", 0),
             "urls_queued": queued_search,
+            "error_type": search.get("error_type"),
+            "error_phase": search.get("error_phase"),
+            "retry_after_seconds": search.get("retry_after_seconds"),
+            "hint": search.get("hint"),
         },
         "pending_source_urls": len(state["_queue"]),
         "discovered_publisher_hosts_total":

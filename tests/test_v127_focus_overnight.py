@@ -44,7 +44,7 @@ class FocusDataTests(unittest.TestCase):
         self.assertEqual(
             p["discovery_scope"],
             "topic_driven_cross_publisher_no_fixed_host_allowlist")
-        self.assertEqual(len(p["seeds"]), 8)
+        self.assertGreaterEqual(len(p["seeds"]), 8)
         self.assertTrue(all(u.startswith("https://") for u in p["seeds"]))
         text = arabic_text()
         self.assertGreater(arabic_ratio(text), .9)
@@ -78,7 +78,7 @@ class FocusDataTests(unittest.TestCase):
                 cfg["daily_request_budget"] = 10
                 cfg["crawl_delay_seconds"] = 0
                 state = init_state(store, "saudi-history-ar", max_pages=3)
-                self.assertEqual(len(state["_queue"]), 8)
+                self.assertEqual(len(state["_queue"]), len(get_profile("saudi-history-ar")["seeds"]))
                 fetched = []
                 html = fake_page(arabic_text())
                 def fetch(url):
