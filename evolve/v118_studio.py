@@ -31,6 +31,8 @@ from .v120_grounded import (grounded_answer, train_ranker,
 from .v121_autonomy import cycle as autonomous_cycle
 from .focus_control import (PROFILE as FOCUS_PROFILE, model_size_snapshot,
                             worker_running, request_stop, start_detached)
+from .focus_training import readiness as focus_training_readiness
+from .focus_data import review_leads as focus_review_leads
 
 HOST = "127.0.0.1"
 MAX_BODY = 16384
@@ -290,6 +292,194 @@ class LearningController:
             store.backfill_focus_activity(FOCUS_PROFILE)
             return store.focus_activity(
                 FOCUS_PROFILE, after=after, before=before, limit=limit)
+        finally:
+            store.close()
+
+    def focus_inspector(self):
+        """Evidence-only view of research, questions, and real model updates.
+
+        This endpoint never starts research, changes rights or trains a model.
+        It does not turn unverified questions or text into asserted answers.
+        """
+        store = self._store()
+        try:
+            profile = FOCUS_PROFILE
+            run = store.get("focus_run_" + profile) or {}
+            observations = store.get("focus_observations_" + profile, []) or []
+            frontier = store.get("focus_frontier_" + profile) or {}
+            trainable = focus_training_readiness(store, profile)
+            attempted = store.get("focus_train_attempted_" + profile) or {}
+            accepted = store.get("focus_train_latest_" + profile) or {}
+            is_running = worker_running(store, profile)
+            heartbeat = run.get("heartbeat_at_utc")
+            heartbeat_age = None
+            if heartbeat:
+                try:
+                    hb = datetime.fromisoformat(heartbeat.replace("Z", "+00:00"))
+                    heartbeat_age = max(0, round((
+                        datetime.now(timezone.utc) - hb).total_seconds(), 1))
+                except (ValueError, TypeError):
+                    pass
+
+            latest_cycle = None
+            recent_cycle = store.db.execute(
+                "SELECT details,created_at FROM runs "
+                "WHERE action='focus_cycle' ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if recent_cycle:
+                try:
+                    data = json.loads(recent_cycle["details"])
+                    if data.get("run_id") == run.get("run_id"):
+                        results = data.get("outcomes", [])
+                        reasons = [item.get("status", "unknown")
+                                   for item in results if isinstance(item, dict)]
+                        latest_cycle = {
+                            "recorded_at_utc": recent_cycle["created_at"],
+                            "number": data.get("cycles"),
+                            "reasons": reasons,
+                            "last_reason": reasons[-1] if reasons else None,
+                            "training_status": data.get("training_status"),
+                        }
+                except (TypeError, ValueError):
+                    pass
+
+            sources = []
+            questions = []
+            for record in observations:
+                if not isinstance(record, dict):
+                    continue
+                source = {
+                    "title": str(record.get("title") or "Untitled source")[:180],
+                    "url": record.get("url"),
+                    "host": record.get("host"),
+                    "rights": record.get("rights", "UNKNOWN"),
+                    "noai": bool(record.get("noai")),
+                    "sha256": record.get("source_sha256"),
+                    "candidate_questions": len(record.get("curiosity", [])),
+                }
+                sources.append(source)
+                for q in record.get("curiosity", []):
+                    if not isinstance(q, dict):
+                        continue
+                    questions.append({
+                        "question": str(q.get("question", ""))[:180],
+                        "subject": str(q.get("subject", ""))[:120],
+                        "source_title": source["title"],
+                        "source_url": source["url"],
+                        "year_mentions": q.get("year_mentions", [])[:12],
+                        "source_excerpt": str(q.get("exact_excerpt", ""))[:160],
+                        "status": "unverified_research_question",
+                        "model_answer": None,
+                        "independently_verified": False,
+                    })
+
+            comparisons = focus_review_leads(observations)
+            pending = frontier.get("pending", [])
+            def model_summary(record):
+                if not record:
+                    return None
+                return {
+                    "status": record.get("status", "not_recorded"),
+                    "accepted": bool(record.get("accepted")),
+                    "steps": record.get("steps", 0),
+                    "steps_total": record.get("steps_total", 0),
+                    "resumed_accepted_weights": record.get(
+                        "resumed_accepted_weights"),
+                    "validation_before": record.get("validation_before"),
+                    "validation_after": record.get("validation_after"),
+                    "heldout_test_loss_diagnostic": record.get(
+                        "heldout_publisher_test_loss_diagnostic"),
+                    "train_loss_last_batch": record.get(
+                        "train_loss_last_batch"),
+                    "sha256": record.get("sha256"),
+                    "dataset_revision_sha256": record.get(
+                        "dataset_revision_sha256"),
+                    "created_at_utc": record.get("created_at_utc"),
+                    "understanding_proven": False,
+                }
+
+            return {
+                "status": "ok",
+                "profile": profile,
+                "checked_at_utc": _utc(),
+                "worker": {
+                    "run_id": run.get("run_id"),
+                    "process_running": is_running,
+                    "status": (run.get("status", "not_started") if is_running
+                               else "stopped_or_interrupted"),
+                    "heartbeat_at_utc": heartbeat,
+                    "heartbeat_age_seconds": heartbeat_age,
+                    "current_phase": run.get("current_phase", "not_started"),
+                    "current_url": run.get("current_url"),
+                    "pages_attempted_this_run": run.get("pages_attempted", 0),
+                    "pages_read_this_run": run.get("pages_read", 0),
+                    "pages_archived_this_run": run.get("pages_archived", 0),
+                    "cycles_completed_this_run": run.get("cycles_completed", 0),
+                    "last_cycle_attempts": run.get("last_cycle_pages_attempted", 0),
+                    "last_cycle_target": run.get("last_cycle_page_target", 0),
+                    "training_steps_this_run": run.get(
+                        "training_steps_this_run", 0),
+                    "training_status": run.get("training_status", "not_checked"),
+                    "last_training": run.get("latest_training"),
+                    "search_status": run.get("search_status", "not_checked"),
+                    "search_diagnostic": run.get("last_search_diagnostic", {}),
+                    "pending_research_urls": run.get(
+                        "pending_research_urls", len(pending)),
+                },
+                "latest_cycle": latest_cycle,
+                "research": {
+                    "archived_research_records": len(sources),
+                    "independent_publisher_hosts": len({
+                        s["host"] for s in sources if s["host"]}),
+                    "source_records": list(reversed(sources[-30:])),
+                    "pending_frontier_urls": len(pending),
+                    "source_records_truncated_to_latest": 30,
+                    "research_only_not_trainable_by_default": True,
+                },
+                "curiosity": {
+                    "unverified_question_count": len(questions),
+                    "latest_questions": list(reversed(questions[-40:])),
+                    "question_records_truncated_to_latest": 40,
+                    "potential_cross_publisher_review_leads": comparisons[:20],
+                    "automatic_independent_fact_verification_performed": False,
+                    "model_generated_answers": 0,
+                    "verified_autonomous_answers": 0,
+                },
+                "training": {
+                    "eligibility_status": trainable["status"],
+                    "approved_pages": trainable["rights_eligible_arabic_pages"],
+                    "approved_independent_hosts": len(
+                        trainable["rights_eligible_arabic_hosts"]),
+                    "source_hosts_by_split": trainable["source_hosts_by_split"],
+                    "bytes_by_split": trainable["bytes_by_split"],
+                    "minimum_bytes_by_split":
+                        trainable["minimum_bytes_by_split"],
+                    "new_training_data_since_last_attempt":
+                        trainable["new_training_data_since_last_attempt"],
+                    "last_attempt": model_summary(attempted),
+                    "last_accepted_checkpoint": model_summary(accepted),
+                    "current_optimizer_steps": run.get(
+                        "current_training_steps_done", 0),
+                    "current_optimizer_step_target": run.get(
+                        "current_training_steps_target", 0),
+                    "current_training_loss": run.get("current_training_loss"),
+                    "current_run_training_steps": run.get(
+                        "training_steps_this_run", 0),
+                    "weights_updated_in_current_run": bool(
+                        run.get("training_runs_with_new_weights", 0)),
+                    "rights_approved_automatically": False,
+                },
+                "capabilities": {
+                    "can_research_public_permitted_sources": True,
+                    "can_generate_source_derived_questions": True,
+                    "can_flag_potential_publisher_claim_disagreements": True,
+                    "can_train_tiny_byte_model_if_sources_approved": True,
+                    "independently_verifies_historical_claims": False,
+                    "focus_model_fluent_qa_implemented": False,
+                    "self_directed_general_reasoning_proven": False,
+                    "alive_meaning": "OS worker activity and recent heartbeat, not sentience",
+                },
+            }
         finally:
             store.close()
 
@@ -657,6 +847,8 @@ def _handler(controller, token, origin):
                 self._reply(controller.status())
             elif self.path == "/api/plan":
                 self._reply(controller.plan())
+            elif self.path == "/api/focus/inspector":
+                self._reply(controller.focus_inspector())
             elif urlsplit(self.path).path == "/api/focus/activity":
                 try:
                     params = parse_qs(urlsplit(self.path).query,
