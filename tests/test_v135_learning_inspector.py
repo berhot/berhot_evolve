@@ -1,5 +1,6 @@
 """Evidence-only learning inspector: no invented learning, claims or network."""
 import copy
+import hashlib
 import http.client
 import json
 import shutil
@@ -144,17 +145,25 @@ class InspectorTests(unittest.TestCase):
             cfg = self._settings(root)
             store = Store(root)
             try:
+                checkpoint_dir = (Path(root) / "models" / "focus" / PROFILE)
+                checkpoint_dir.mkdir(parents=True)
+                valid_file = checkpoint_dir / "accepted.pt"
+                saved_bytes = b"checkpoint bytes used by integrity test"
+                valid_file.write_bytes(saved_bytes)
+                valid_digest = hashlib.sha256(saved_bytes).hexdigest()
                 store.put("focus_train_attempted_" + PROFILE, {
                     "status": "trained", "accepted": False,
                     "steps": 12, "validation_before": 3.1,
                     "validation_after": 3.5, "sha256": "a" * 64,
+                    "checkpoint": str(checkpoint_dir / "not-present.pt"),
                 })
                 store.put("focus_train_latest_" + PROFILE, {
                     "status": "trained", "accepted": True,
                     "steps": 10, "steps_total": 10,
                     "validation_before": 4.2,
                     "validation_after": 3.9,
-                    "sha256": "b" * 64,
+                    "sha256": valid_digest,
+                    "checkpoint": str(valid_file),
                 })
                 ctrl = LearningController(cfg, interval=30)
                 try:
@@ -170,6 +179,12 @@ class InspectorTests(unittest.TestCase):
                     self.assertEqual(
                         result["training"]["last_accepted_checkpoint"]
                         ["steps_total"], 10)
+                    self.assertTrue(
+                        result["training"]["last_accepted_checkpoint"]
+                        ["checkpoint_sha256_verified"])
+                    self.assertFalse(
+                        result["training"]["last_attempt"]
+                        ["checkpoint_sha256_verified"])
                 finally:
                     ctrl.shutdown()
             finally:
