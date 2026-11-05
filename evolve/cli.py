@@ -32,6 +32,10 @@ def main(argv=None):
     focus_run.add_argument("--profile", choices=["saudi-history-ar"], default="saudi-history-ar")
     focus_run.add_argument("--network", action="store_true", help="Required explicit consent for robots-compliant site access")
     focus_run.add_argument("--hours", type=float, default=8.0)
+    focus_run.add_argument("--until-stopped", action="store_true",
+        help="Keep agent process alive until Ctrl+C, SIGTERM or dashboard Stop; research remains capped per UTC day")
+    focus_stop = sub.add_parser("focus-stop", help="Request graceful stop of the running Saudi-history worker")
+    focus_stop.add_argument("--profile", choices=["saudi-history-ar"], default="saudi-history-ar")
     focus_run.add_argument("--interval-minutes", type=int, default=15)
     focus_run.add_argument("--max-pages", type=int, default=24)
     focus_run.add_argument("--pages-per-cycle", type=int, default=3)
@@ -411,7 +415,8 @@ def main(argv=None):
                 hours=args.hours, interval_minutes=args.interval_minutes,
                 max_pages=args.max_pages,
                 pages_per_cycle=args.pages_per_cycle,
-                train_steps=args.train_steps)
+                train_steps=args.train_steps,
+                until_stopped=args.until_stopped)
         finally:
             focus_store.close()
         return
@@ -436,6 +441,9 @@ def main(argv=None):
             elif args.command == "focus-report":
                 from .focus_overnight import report
                 result = report(store, profile_name=args.profile)
+            elif args.command == "focus-stop":
+                from .focus_control import request_stop
+                result = request_stop(store, profile=args.profile)
             elif args.command == "corpus-seed":
                 from .open_corpus import corpus_seed
                 result = corpus_seed(store, args.urls, cross_host=not args.same_host)
