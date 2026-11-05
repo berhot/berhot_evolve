@@ -15,6 +15,7 @@ _PROFILES = {
             "السعودية", "الدرعية", "الدولة السعودية", "التأسيس",
             "الملك عبدالعزيز", "المملكة العربية", "آل سعود",
             "التوحيد", "يوم التأسيس", "الإمام محمد بن سعود",
+            "تاريخ", "التاريخ",
         ),
         "url_terms": (
             "السعود", "الدرعية", "التأسيس", "الملك", "التاريخ",
@@ -69,11 +70,19 @@ def topic_relevance(text, title, profile):
     sample = text[:12000].casefold()
     keywords = [term for term in profile["keywords"] if term in sample]
     in_title = [term for term in profile["keywords"] if term in heading]
+    strong = {
+        "الدرعية", "الدولة السعودية", "التأسيس", "الملك عبدالعزيز",
+        "آل سعود", "التوحيد", "يوم التأسيس",
+        "الإمام محمد بن سعود", "تاريخ", "التاريخ",
+    }
+    historically_specific = any(word in strong for word in keywords)
+    title_historical = any(word in strong for word in in_title)
     return {
         "language_ratio_ar": arabic_ratio(text),
         "keyword_hits": keywords,
         "title_keyword_hits": in_title,
-        "topical": len(keywords) >= 2 or bool(in_title),
+        "topical": title_historical or (
+            len(keywords) >= 2 and historically_specific),
         "language_ok": arabic_ratio(text) >= 0.48,
     }
 
