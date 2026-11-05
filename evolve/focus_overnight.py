@@ -161,6 +161,9 @@ def init_state(store, profile_name, extra_urls=None, max_pages=24):
         "current_training_loss": None,
         "stop_requested": False,
         "pages_attempted": 0, "pages_archived": 0,
+        "last_cycle_pages_attempted": 0,
+        "last_cycle_page_target": 0,
+        "last_cycle_pacing_waits": 0,
         "new_unique_pages": 0, "exact_duplicate_pages": 0,
         "skipped_off_topic_or_non_arabic": 0,
         "errors": 0,
@@ -582,6 +585,9 @@ def cycle(store, settings, state, pages=3, train_steps=40,
                 (state.get("no_fixed_quotas") or checks < int(pages))):
             sleep_fn(max(2.0, float(settings.get("crawl_delay_seconds", 2))))
     completed_page_attempts = state["pages_attempted"] - pages_at_cycle_start
+    state["last_cycle_pages_attempted"] = completed_page_attempts
+    state["last_cycle_page_target"] = int(pages)
+    state["last_cycle_pacing_waits"] = pacing_waits
     _publish(
         store, state, "research_cycle_pages_complete",
         event="cycle_research_summary",
@@ -775,6 +781,8 @@ def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
         state["until_stopped"] = bool(until_stopped)
         state["no_fixed_quotas"] = bool(no_fixed_quotas)
         state["browser_search_provider"] = search_provider
+        state["pages_per_cycle_target"] = int(pages_per_cycle)
+        state["cycle_interval_minutes"] = int(interval_minutes)
         state["worker_pid"] = os.getpid()
         duration = float(hours) * 3600 if not until_stopped else None
         start = monotonic_fn()
@@ -808,6 +816,8 @@ def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
             "max_pages_per_utc_day": None if no_fixed_quotas else max_pages,
             "no_fixed_quotas": bool(no_fixed_quotas),
             "search_provider": search_provider,
+            "pages_per_cycle_target": int(pages_per_cycle),
+            "cycle_interval_minutes": int(interval_minutes),
             "note": (
                 "Continuous discovery runs until manual stop. There are no "
                 "arbitrary daily page/search counts in open-ended mode; "
