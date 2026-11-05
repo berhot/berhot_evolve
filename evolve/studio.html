@@ -93,6 +93,7 @@ footer{color:var(--muted);font-size:11px;text-align:center;margin-top:24px}
 <div id="focus-recent-activity" class="focus-activity" role="log" aria-label="Saved worker activity" aria-live="off"><div class="empty">Loading worker events…</div></div>
 <div class="mline"><span class="muted">Current focus</span><strong>تاريخ المملكة العربية السعودية</strong></div>
 <div class="mline"><span class="muted">Research progress / UTC daily cap</span><strong id="focus-daily">—</strong></div>
+<div class="mline"><span class="muted">Last cycle · actual page attempts / target</span><strong id="focus-cycle-pages">—</strong></div>
 <div class="mline"><span class="muted">Current training status</span><strong id="focus-training-status">Not checked</strong></div>
 <div class="mline"><span class="muted">Research hosts / waiting source URLs</span><strong id="focus-discovery">—</strong></div>
 <div class="mline"><span class="muted">Cross-publisher links / web searches</span><strong id="focus-search">—</strong></div>
@@ -331,6 +332,10 @@ async function refresh(){
  text("focus-daily",f.no_fixed_research_quotas?
    (f.pages_today||0)+" pages today · no fixed daily count · "+(f.pages_attempted||0)+" total attempts":
    (f.pages_today||0)+" / "+(f.max_pages_per_day||24)+" pages (UTC) · "+(f.pages_attempted||0)+" total attempts");
+ text("focus-cycle-pages",(f.last_cycle_pages_attempted||0)+" / "+
+   (f.last_cycle_page_target||f.pages_per_cycle_target||0)+
+   " actual page fetch attempts · "+(f.last_cycle_pacing_waits||0)+
+   " pacing waits · "+(f.cycle_interval_minutes??15)+"m after each cycle");
  text("focus-training-status",f.training_status||"Not checked");
  text("focus-discovery",(f.distinct_research_hosts||0)+" publishers · "+(f.pending_research_urls||0)+" pending URLs");
  text("focus-search",(f.cross_publisher_links_queued||0)+" external links · "+(f.search_queries_this_run||0)+" search attempts · "+(f.browser_search_provider||"duckduckgo"));
