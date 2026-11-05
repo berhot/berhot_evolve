@@ -746,13 +746,15 @@ def report(store, profile_name="saudi-history-ar"):
 
 
 def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
-        interval_minutes=15, max_pages=24, pages_per_cycle=3,
+        interval_minutes=2, max_pages=24, pages_per_cycle=20,
         train_steps=40, extra_urls=None, fetcher=None, sleep_fn=time.sleep,
         monotonic_fn=time.monotonic, until_stopped=False,
         search_fn=None, no_fixed_quotas=False,
         search_provider="duckduckgo"):
     """User-started local process; continuous mode ends ONLY on manual stop.
 
+    Per-cycle page targets count real permitted fetch attempts, not publisher
+    pacing waits. Publisher request delays and access rights remain mandatory.
     Source queue and page caps reset at UTC midnight, but network permissions,
     robots, TLS, license review and unchanged-dataset training restrictions do
     not reset. With no new authorized work, it remains awake but idle.
