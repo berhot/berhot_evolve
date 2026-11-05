@@ -337,15 +337,19 @@ def cycle(store, settings, state, pages=3, train_steps=40,
         raise ValueError("pages per cycle must be 1..8")
     profile = get_profile(state["profile"])
     observations = store.get(_HISTORY + state["profile"], []) or []
-    search = (
-        {"status": "skipped_stop_requested", "queries_attempted": 0,
-         "url_candidates": []}
-        if stop_requested(store, state["run_id"], state["profile"])
-        else run_one_search(
+    if stop_requested(store, state["run_id"], state["profile"]):
+        search = {"status": "skipped_stop_requested",
+                  "queries_attempted": 0, "url_candidates": []}
+    elif fetcher is not None and search_fn is None:
+        # Offline fixture injection must NEVER unexpectedly make real
+        # browser or search-engine requests, even when Playwright is installed.
+        search = {"status": "offline_test_no_search_provider",
+                  "queries_attempted": 0, "url_candidates": []}
+    else:
+        search = run_one_search(
             store, settings, profile, observations, search_fn=search_fn,
             open_ended=bool(state.get("no_fixed_quotas")),
             provider=state.get("browser_search_provider", "duckduckgo"))
-    )
     queued_search = 0
     for found in search.get("url_candidates", []):
         if _enqueue(state, found):
