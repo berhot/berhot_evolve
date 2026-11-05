@@ -1656,3 +1656,39 @@ limits, source rights, existing done/error queue statuses, or the independent
 train/validation/test gate. If robots.txt is denied, the source remains
 unavailable and is **not** bypassed. The `retry-url` command refuses an
 explicit robots exclusion; never treat a 403 robots failure as permission.
+
+## v1.23 — Critical source-label integrity fix
+
+The previous NOAA evaluation used **incorrect answers**: the title-heading
+fallback accepted a navigation fragment like `Toggle navigation ... What is a
+current?` as if it defined the topic. That invalidates the earlier claim of
+100% useful held-out definition-ranking accuracy, even though the PyTorch
+optimization and source-host partitioning did run.
+
+The title extractor now requires a self-contained, subject-anchored
+**declarative definition**; it will not use heading questions, menus, or
+search/navigation text as answers. It can still accept literal source
+definitions such as `The term "current" describes ...` and `Estuaries
+and their surrounding wetlands are bodies of water ...`, if those exact
+sentences exist in the previously rights-reviewed archived content.
+
+Old model checkpoints and metrics are preserved for historical auditing
+but **automatically disabled** for grounded answers, because their label
+policy does not match the corrected extraction policy. A changed evidence
+policy triggers a new readiness check and training attempt when eligible.
+No artificial test examples, source-rights bypass, or blind-test claim.
+
+```bash
+git switch main
+git pull --ff-only origin main
+python3 -m pip install -e '.[train]'
+python3 -m evolve v120-ask --question "What is a current?"
+python3 -m evolve v120-ask --question "What is an estuary?"
+python3 -m evolve v120-readiness
+python3 -m evolve v121-cycle --max-topics 8 --steps 120
+python3 -m evolve v121-report
+python3 -m evolve model-audit
+```
+
+This is still a tiny source-derived evidence ranker; it has not demonstrated
+general scientific reasoning or outperformance over lexical heuristics.
