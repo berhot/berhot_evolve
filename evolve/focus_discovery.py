@@ -90,6 +90,16 @@ def relevant_links(html, source_url, profile, max_results=_MAX_LINKS_PER_PAGE):
         link = _candidate_link(urljoin(source_url, ref or ""))
         if not link or link in seen or link == source_url:
             continue
+        # Navigation-only roots/tags aren't articles. They consume actual
+        # fetch slots but commonly yield short JS shells or redirect errors.
+        # This affects discovered links only; user-supplied seeds remain
+        # subject to their normal independent fetch and rights checks.
+        path = unquote(urlsplit(link).path).strip("/").casefold()
+        if (path in ("", "ar", "en", "home.aspx", "index.html",
+                     "index.php", "index.aspx") or
+                path.startswith(("tag/", "tags/", "category/",
+                                 "categories/"))):
+            continue
         seen.add(link)
         uri_text = unquote(urlsplit(link).path).replace("-", " ").replace("_", " ")
         quality = topic_relevance(
