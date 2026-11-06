@@ -178,11 +178,16 @@ class SitemapDiscoveryTests(unittest.TestCase):
             self.store, self.profile, [], sitemap_fn=fake_sitemap,
             now=now + 2)
         self.assertEqual(again["host"], "www.mofa.gov.sa")
+        # Every additional independent starter publisher receives a turn.
+        for delta in range(3, len(self.profile["initial_seed_hosts"])):
+            discover_publisher_sitemaps(
+                self.store, self.profile, [], sitemap_fn=fake_sitemap,
+                now=now + delta)
         cooling = discover_publisher_sitemaps(
             self.store, self.profile, [], sitemap_fn=fake_sitemap,
             now=now + 3)
         self.assertEqual(cooling["status"], "sitemap_publisher_cooldown")
-        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(calls), len(self.profile["initial_seed_hosts"]))
         self.assertEqual(cooling["network_requests"], 0)
 
     def test_corrected_parser_gets_one_fresh_scan_after_old_cooldown(self):

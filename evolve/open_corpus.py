@@ -122,6 +122,8 @@ def archive_page(store, url, html, extracted_text, title="", noai=False,
          urlsplit(url).hostname or "", rights_status, rights_url,
          int(bool(noai)), when),
     )
+    from .training_approval import approve_future_snapshot
+    operator_approved = approve_future_snapshot(store, url, clean_sha, noai, when)
     store.db.commit()
     return {
         "status": "archived",
@@ -132,6 +134,7 @@ def archive_page(store, url, html, extracted_text, title="", noai=False,
         "quality_heuristic": quality["heuristic_score"],
         "split": split, "rights_status": rights_status,
         "noai": bool(noai), "neural_training_admitted": False,
+        "operator_training_approved": operator_approved,
     }
 
 
@@ -150,6 +153,9 @@ def corpus_status(store):
         "SELECT split,COUNT(*) FROM web_corpus_texts GROUP BY split")}
     noai = int(store.db.execute(
         "SELECT COUNT(*) FROM web_corpus_sources WHERE noai=1").fetchone()[0])
+    from .training_approval import training_condition
+    approved = store.db.execute(
+        "SELECT COUNT(*) FROM web_corpus_sources WHERE " + training_condition()).fetchone()[0]
     return {
         "status": "audited",
         "urls_collected": sources,
@@ -160,8 +166,18 @@ def corpus_status(store):
         "corpus_splits": splits,
         "rights_metadata": rights,
         "noai_source_count": noai,
-        "training_approved_from_corpus": 0,
-        "neural_training_from_corpus": "NOT_IMPLEMENTED",
+        "training_approved_from_corpus": approved,
+        "neural_training_from_corpus": "approved_focus_plain_shards",
+        "plain_focus_dataset": store.get("focus_plain_dataset_latest_saudi-history-ar"),
+        "latest_plain_export": store.get("focus_plain_export_latest_saudi-history-ar"),
+        "extraction_batches_directory": str(store.root / "corpus_runs"),
+        "collected_text_folder": str(store.root / "corpus_runs" / "COLLECTED_TEXT")
+            if (store.root / "corpus_runs" / "COLLECTED_TEXT").is_dir() else None,
+        "latest_populated_extraction": store.get("plain_extraction_latest_populated_saudi-history-ar"),
+        "no_extraction_audit_directory": str(store.root / "collection_audit"),
+        "dataset_catalog_root": str(store.root / "datasets" / "focus_plain"),
+        "trained_datasets_directory": str(store.root / "datasets" / "focus_plain" / "trained"),
+        "active_model_dataset_folder": str(store.root / "datasets" / "focus_plain" / "active" / "saudi-history-ar"),
         "collection_implementation": "BERHOT-owned Python module using stdlib only",
         "deduplication": "SHA256 exact post-normalization plus decoded HTML snapshot digest; no semantic dedup",
         "warning": (

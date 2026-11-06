@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
+from functools import lru_cache
 
 PROFILE = "saudi-history-ar"
 
@@ -124,6 +125,17 @@ def start_detached(store, project_root, profile=PROFILE):
            "--browser-search-provider", "duckduckgo",
            "--pages-per-cycle", "20", "--interval-minutes", "2",
            "--train-steps", "40"]
+    owned=(store.get('focus_execution_policy') or {}).get('engine')=='first_party_c'
+    if owned:
+        cmd=[sys.executable,'-S','-u','-m','evolve','owned-learn','--steps','120',
+             '--context-bytes','256','--until-stopped']
+    pytorch=(store.get('focus_execution_policy') or {}).get('engine')=='pytorch'
+    if pytorch:
+        cmd=[sys.executable,'-u','-m','evolve','focus-learn','--steps','120',
+             '--context-bytes','256','--until-stopped']
+        if (store.get('focus_execution_policy') or {}).get('autonomous_pipeline'):
+            cmd=[sys.executable,'-u','-m','evolve','focus-autonomous','--network','--until-stopped',
+                 '--pages-per-cycle','5','--train-steps','120','--interval-minutes','2']
     if sys.platform == "darwin" and shutil.which("caffeinate"):
         cmd = ["caffeinate", "-i", *cmd]
     with logfile.open("ab") as output:
@@ -138,11 +150,21 @@ def start_detached(store, project_root, profile=PROFILE):
         "profile": profile,
         "log_path": str(logfile),
         "note": (
+            "Owned C/Python learning process; network, external model APIs and site packages disabled."
+            if owned else "PyTorch learning for your own model and data; no external model APIs or pretrained weights."
+            if pytorch else
             "Separate local process. It remains active after this browser "
             "closes while the Mac stays awake. Publisher pacing, robots "
             "and rights checks still apply."
         ),
     }
+
+
+@lru_cache(maxsize=8)
+def _focus_parameter_count(embedding_dim, hidden_size):
+    from .focus_training import _network
+    _, architecture = _network({"embedding_dim": embedding_dim, "hidden_size": hidden_size})
+    return sum(int(p.numel()) for p in architecture.parameters())
 
 
 def model_size_snapshot(store):
@@ -155,22 +177,19 @@ def model_size_snapshot(store):
     # have not installed optional PyTorch yet. These formulas correspond to
     # the exact current nn.Linear/Embedding/GRU module dimensions.
     ranker_params = 7 * 12 + 12 + 12 * 1 + 1
-    focus_params = (
-        256 * 48 +  # byte embeddings
-        3 * 96 * 48 + 3 * 96 * 96 + 2 * 3 * 96 +  # GRU
-        96 * 256 + 256  # output logits
-    )
-    try:
-        from .v120_grounded import _model
-        from .focus_training import _network
-        ranker_params = sum(int(p.numel()) for p in _model().parameters())
-        _, focus_arch = _network()
-        focus_params = sum(int(p.numel()) for p in focus_arch.parameters())
-        computed_from_pytorch = True
-    except RuntimeError as exc:
-        if "Install PyTorch first" not in str(exc):
-            raise
-        computed_from_pytorch = False
+    from .focus_training import model_config, parameter_count, LEGACY_MODEL_CONFIG
+    config = model_config(store, PROFILE)
+    focus_params = parameter_count(config)
+    computed_from_pytorch = False
+    if (store.get('focus_execution_policy') or {}).get('engine')!='first_party_c':
+        try:
+            from .v120_grounded import _model
+            ranker_params = sum(int(p.numel()) for p in _model().parameters())
+            focus_params = _focus_parameter_count(config["embedding_dim"], config["hidden_size"])
+            computed_from_pytorch = True
+        except RuntimeError as exc:
+            if "Install PyTorch first" not in str(exc):
+                raise
     ranker = store.get("v120_ranker_latest") or {}
     focus = store.get("focus_train_latest_" + PROFILE) or {}
     candidate = store.get("focus_train_attempted_" + PROFILE) or {}
@@ -187,6 +206,10 @@ def model_size_snapshot(store):
         },
         "saudi_history_arabic": {
             "architecture_parameters": focus_params,
+            "model_config": config,
+            "accepted_checkpoint_parameters": focus.get("trainable_parameters", 0),
+            "accepted_checkpoint_matches_architecture": bool(focus.get("accepted")) and
+                (focus.get("model_config") or LEGACY_MODEL_CONFIG) == config,
             "accepted_checkpoint_recorded": bool(focus.get("accepted")),
             "accepted_checkpoint_sha256": focus.get("sha256"),
             "accepted_training_steps_recorded": focus.get("steps_total", 0),

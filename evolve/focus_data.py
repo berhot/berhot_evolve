@@ -35,9 +35,23 @@ _PROFILES = {
             "https://www.spa.gov.sa/w1857788",
             "https://www.mofa.gov.sa/ar/ksa/Pages/history.aspx",
             "https://www.mofa.gov.sa/ar/ksa/Pages/foundingday.aspx",
+            # Independent entry points, not a host allowlist. Opaque article
+            # IDs need a starting URL before link and sitemap discovery can
+            # find them. All content still passes the normal source checks.
+            "https://sites.moe.gov.sa/Aseer/events/event-13/",
+            "https://www.alriyadh.com/1936348",
+            "https://ncss.gov.sa/index.php/ar/" + quote("يوم-التأسيس-السعودي"),
+            "https://www.sama.gov.sa/ar-sa/Currency/Pages/HistoricalInfo.aspx",
+            "https://www.saso.gov.sa/ar/mediacenter/news/Pages/saso_news_1409.aspx",
+            "https://tvtc.gov.sa/ar/Training-Units/Boys-Colleges/RTC/Pages/founding_day2026.aspx",
+            "https://tanmia-idaria.ipa.edu.sa/Pages/169-3.aspx",
+            "https://awkafonline.gov.eg/content-sections/98/7020/" + quote("آل-سعود"),
         ),
         "initial_seed_hosts": (
-            "saudipedia.com", "www.spa.gov.sa", "www.mofa.gov.sa"),
+            "saudipedia.com", "www.spa.gov.sa", "www.mofa.gov.sa",
+            "sites.moe.gov.sa", "www.alriyadh.com", "ncss.gov.sa",
+            "www.sama.gov.sa", "www.saso.gov.sa", "tvtc.gov.sa",
+            "tanmia-idaria.ipa.edu.sa", "awkafonline.gov.eg"),
         "discovery_scope": "topic_driven_cross_publisher_no_fixed_host_allowlist",
         "policy_urls": (
             "https://saudipedia.com/footer/" + quote("شروط الاستخدام"),

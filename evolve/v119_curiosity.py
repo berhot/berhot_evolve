@@ -15,6 +15,7 @@ from .web_discovery import canonical_url, fetch_page, extract, detect_declared_r
 from .open_corpus import archive_page
 from .v118_core import _approved_text, _words, _sha, answer_from_sources, _qa_xy
 from .web_lab import _canonical_bytes
+from .training_approval import training_condition
 
 VERSION = "source_grounded_curiosity_v119"
 _REJECT_START = (
@@ -341,8 +342,8 @@ def sentence_lessons(store, per_host=18, max_sources=150):
     if not 2 <= int(per_host) <= 40:
         raise ValueError("per_host must be 2..40")
     rows = store.db.execute(
-        "SELECT url,host FROM web_corpus_sources WHERE noai=0 AND "
-        "rights_status IN ('CC0-1.0','PUBLIC-DOMAIN') ORDER BY url LIMIT ?",
+        "SELECT url,host FROM web_corpus_sources WHERE " +
+        training_condition() + " ORDER BY url LIMIT ?",
         (int(max_sources),)).fetchall()
     old = store.get("v119_auto_lessons", []) or []
     seen = {x["fingerprint"] for x in old}

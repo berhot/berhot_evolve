@@ -17,6 +17,8 @@ ALLOWED = ("CC0-1.0", "PUBLIC-DOMAIN")
 
 
 def sources(store):
+    from .training_approval import operator_approvals, approved_for_training
+    approvals = operator_approvals(store)
     rows = store.db.execute(
         "SELECT s.url,s.host,s.title,s.rights_status,s.rights_evidence_url,"
         "s.noai,s.sha256,t.words,t.characters FROM web_corpus_sources s "
@@ -32,8 +34,9 @@ def sources(store):
                 "publisher_noai": bool(r["noai"]),
                 "clean_sha256": r["sha256"], "word_count": r["words"],
                 "characters": r["characters"],
+                "operator_training_approved": (r["url"], r["sha256"]) in approvals,
                 "potentially_eligible": (
-                    r["rights_status"] in ALLOWED and not r["noai"]
+                    approved_for_training(r, approvals)
                     and int(r["words"]) >= 300),
             }
             for r in rows

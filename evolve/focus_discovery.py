@@ -30,6 +30,48 @@ _AVOID_HOSTS = (
 )
 
 
+def publisher_key(url):
+    """Group www aliases and common Saudi institutional subdomains fairly.
+
+    This is a scheduling hint, never an origin/access-control decision.
+    """
+    host = (urlsplit(url).hostname or "").lower()
+    labels = host.removeprefix("www.").split(".")
+    suffix = ".".join(labels[-2:])
+    depth = 3 if suffix in ("gov.sa", "edu.sa", "org.sa", "com.sa",
+                            "gov.eg", "edu.eg") else 2
+    return ".".join(labels[-depth:])
+
+
+def diverse_urls(urls, limit):
+    """Round-robin ranked links across publishers, without losing any host."""
+    groups = {}
+    for url in dict.fromkeys(urls):
+        groups.setdefault(publisher_key(url), []).append(url)
+    result = []
+    while groups and len(result) < limit:
+        for host in list(groups):
+            result.append(groups[host].pop(0))
+            if not groups[host]:
+                del groups[host]
+            if len(result) >= limit:
+                break
+    return result
+
+
+def arabic_candidate_priority(url):
+    """Untrusted language/URL hints for scheduling, never article admission."""
+    parts=urlsplit(url);host=(parts.hostname or '').casefold()
+    path=unquote(parts.path).casefold()
+    # Authority identifiers and explicitly foreign-language routes are poor
+    # first choices for an Arabic article corpus. Retain them for exploration.
+    if re.search(r'/(?:auth|authority|viaf|fr|de|ja|ru|zh|en)(?:/|$)',path):return 2
+    if (host.startswith('ar.') or host.endswith('.sa') or
+            re.search(r'[\u0621-\u064a]',path) or re.search(r'/(?:ar|arabic)(?:/|$)',path)):
+        return 0
+    return 1
+
+
 def _utc_day():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
@@ -45,6 +87,8 @@ def _candidate_link(url):
     if any(host == bad or host.endswith("." + bad) for bad in _AVOID_HOSTS):
         return None
     lower = unquote(parts.path).casefold()
+    if lower.strip("/ ") == "" and lower not in ("", "/"):
+        return None
     if any(item in lower for item in _DISALLOWED_URL_PARTS):
         return None
     if len(safe) > 1300 or len(lower) > 380:
@@ -85,6 +129,8 @@ def relevant_links(html, source_url, profile, max_results=_MAX_LINKS_PER_PAGE):
     """
     collector = _AnchorCollector()
     collector.feed(html)
+    parent_topical = topic_relevance(html[:40000], "", profile)["topical"]
+    source_publisher = publisher_key(source_url)
     candidates, seen = [], set()
     for ref, anchor in collector.entries[:800]:
         link = _candidate_link(urljoin(source_url, ref or ""))
@@ -109,7 +155,14 @@ def relevant_links(html, source_url, profile, max_results=_MAX_LINKS_PER_PAGE):
             any(word.casefold() in (anchor + " " + uri_text).casefold()
                 for word in profile["url_terms"])
         )
-        if not quality["topical"] and not query_signal:
+        external = publisher_key(link) != source_publisher
+        # Citation labels commonly omit the article subject and point to an
+        # opaque ID. Follow those only from a topical parent; destination
+        # text is independently checked before it enters the focus corpus.
+        citation = (external and parent_topical and bool(re.search(
+            r"المصدر|المراجع|مرجع|الموقع الرسمي|source|reference|citation",
+            anchor, re.I)))
+        if not quality["topical"] and not query_signal and not citation:
             continue
         rank = (
             4 * len(quality["title_keyword_hits"]) +
@@ -118,10 +171,18 @@ def relevant_links(html, source_url, profile, max_results=_MAX_LINKS_PER_PAGE):
         )
         candidates.append((rank, link))
     candidates.sort(key=lambda x: (-x[0], x[1]))
-    return [url for _, url in candidates[:min(int(max_results), 30)]]
+    limit = max(0, min(int(max_results), 30))
+    ranked = [url for _, url in candidates]
+    # Reserve half the result slots for independent publishers when present,
+    # so a long local navigation list cannot bury external references.
+    external = diverse_urls(
+        [url for url in ranked if publisher_key(url) != source_publisher],
+        (limit + 1) // 2)
+    return (external + diverse_urls(
+        [url for url in ranked if url not in external], limit - len(external)))[:limit]
 
 
-def _queries_from_observations(profile, observations):
+def _queries_from_observations(profile, observations, diversify=False):
     """The follow-up search questions come from observed source evidence."""
     initial = (
         "تاريخ المملكة العربية السعودية مصادر تاريخية",
@@ -148,6 +209,20 @@ def _queries_from_observations(profile, observations):
             continue
         seen.add(query)
         output.append(query)
+    if diversify and len(observations) >= 3:
+        counts = {}
+        for entry in observations:
+            host = publisher_key(entry.get("url", ""))
+            if host:
+                counts[host] = counts.get(host, 0) + 1
+        if counts:
+            dominant = max(counts, key=counts.get)
+            if counts[dominant] / sum(counts.values()) > 0.5:
+                # Alternate normal queries with an independent-source query;
+                # exclusion is a discovery hint, never a permanent denylist.
+                suffix = " -site:" + dominant
+                output = [variant for query in output for variant in (
+                    query[:150-len(suffix)] + suffix, query)]
     return output
 
 
@@ -177,7 +252,12 @@ def discover_search_urls(store, profile, observations, *, search_fn=None,
     # incorrectly recorded failures as completed queries and could leave an
     # otherwise healthy worker idle with no new sources for the entire day.
     done = set(store.get("focus_search_success_" + day, []) or [])
-    queries = _queries_from_observations(profile, observations)
+    queries = _queries_from_observations(profile, observations, diversify=open_ended)
+    if open_ended:
+        tasks=store.get('focus_autonomous_research_tasks') or []
+        priority=[' '.join(str(task.get('search_query','')).split())[:150]
+                  for task in tasks if task.get('status')=='pending']
+        queries=list(dict.fromkeys([query for query in priority if query]+queries))
     historical = store.get("focus_search_history_" + profile["name_ar"]) or {}
     failures = store.get("focus_search_failures_" + profile["name_ar"]) or {}
     now = time.time()
@@ -280,6 +360,7 @@ def run_one_search(store, settings, profile, observations,
             error_type=result.get("error_type"),
             error_phase=result.get("error_phase"),
             hint=result.get("hint"),
+            engine=result.get("engine", provider),
         )
 
     success_key = "focus_search_success_" + day
@@ -289,6 +370,12 @@ def run_one_search(store, settings, profile, observations,
     history = store.get(history_key) or {}
     history[planned["query_hash"]] = day
     store.put(history_key, history)
+    tasks=store.get('focus_autonomous_research_tasks') or []
+    changed=False
+    for task in tasks:
+        if task.get('status')=='pending' and task.get('search_query')==planned['query']:
+            task.update(status='searched',searched_on_utc_day=day);changed=True
+    if changed:store.put('focus_autonomous_research_tasks',tasks)
     failures = store.get(failure_key) or {}
     if planned["query_hash"] in failures:
         failures.pop(planned["query_hash"], None)
@@ -310,9 +397,9 @@ def run_one_search(store, settings, profile, observations,
         "status": result["status"],
         "queries_attempted": 1,
         "query": planned["query"],
-        "provider": provider,
-        "url_candidates": list(dict.fromkeys(candidates))[:30],
+        "provider": result.get("engine", provider),
+        "url_candidates": diverse_urls(candidates, 30),
         "result_snippets_trusted_as_fact": False,
-        "search_api_key_required": False,
+        "search_api_key_required": result.get("search_api_key_required", False),
         "browser_visible": False,
     }

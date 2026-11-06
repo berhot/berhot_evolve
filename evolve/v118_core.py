@@ -20,6 +20,7 @@ from .store import Store
 from .v117 import (plan as source_plan, prepare, _read_frozen, _load_tokenizer,
                    _generate, _within, FORMAT as V117_FORMAT)
 from .web_lab import _canonical_bytes
+from .training_approval import approved_for_training, operator_approvals, training_condition
 
 QA_FORMAT = "berhot_supervised_answer_v118"
 STOPWORDS = frozenset(
@@ -46,7 +47,7 @@ def _approved_text(store, url):
         "t.clean_path,t.words,t.characters FROM web_corpus_sources s "
         "JOIN web_corpus_texts t ON s.sha256=t.sha256 WHERE s.url=?",
         (url,)).fetchone()
-    if not row or row["rights_status"] not in ("CC0-1.0", "PUBLIC-DOMAIN") or row["noai"]:
+    if not approved_for_training(row, operator_approvals(store)):
         raise ValueError("Source is not archived and explicitly rights-reviewed")
     file = _within(store.root / "web_corpus" / "clean", row["clean_path"])
     data = file.read_bytes()
@@ -59,12 +60,11 @@ def curriculum(store):
     """Shows full rights and host diversity; never counts pages as understanding."""
     source = source_plan(store)
     rows = store.db.execute(
-        "SELECT s.url,s.title,s.host,s.rights_status,s.noai,t.words,t.characters "
+        "SELECT s.url,s.title,s.host,s.rights_status,s.noai,s.sha256,t.words,t.characters "
         "FROM web_corpus_sources s JOIN web_corpus_texts t "
         "ON s.sha256=t.sha256 ORDER BY s.url").fetchall()
-    eligible = [dict(r) for r in rows if
-                r["rights_status"] in ("PUBLIC-DOMAIN", "CC0-1.0")
-                and not r["noai"]]
+    approvals = operator_approvals(store)
+    eligible = [dict(r) for r in rows if approved_for_training(r, approvals)]
     hosts = sorted(set(x["host"] for x in eligible))
     count = len(eligible)
     staged = prepare(store) if len(source["eligible_article_hosts"]) >= 3 else {
@@ -104,7 +104,7 @@ def answer_from_sources(store, question, limit=3):
     matches = []
     rows = store.db.execute(
         "SELECT url FROM web_corpus_sources "
-        "WHERE rights_status IN ('CC0-1.0','PUBLIC-DOMAIN') AND noai=0 "
+        "WHERE " + training_condition() + " "
         "ORDER BY url LIMIT 250").fetchall()
     for row in rows:
         source, text = _approved_text(store, row["url"])

@@ -131,7 +131,10 @@ def _shingles(text, n=5):
 
 def _remove_near_copies(articles, threshold=0.86):
     """Drop duplicated or highly overlapping chunks BEFORE any split assignment."""
-    all_seen = []
+    # Count shared shingles through an inverted index. This computes the same
+    # Jaccard score without intersecting every new chunk with every old set.
+    sizes = []
+    postings = {}
     dropped = 0
     for article in articles:
         clean = []
@@ -139,21 +142,30 @@ def _remove_near_copies(articles, threshold=0.86):
             shingles = _shingles(chunk["text"])
             near = False
             if shingles:
-                for existing in all_seen:
-                    overlap = len(shingles & existing)
-                    if overlap / len(shingles | existing) >= threshold:
+                if sizes and threshold <= 0:
+                    near = True
+                overlaps = Counter()
+                for shingle in shingles:
+                    overlaps.update(postings.get(shingle, ()))
+                for index, overlap in overlaps.items():
+                    if overlap / (len(shingles) + sizes[index] - overlap) >= threshold:
                         near = True
                         break
             if near:
                 dropped += 1
             else:
-                all_seen.append(shingles)
+                index = len(sizes)
+                sizes.append(len(shingles))
+                for shingle in shingles:
+                    postings.setdefault(shingle, []).append(index)
                 clean.append(chunk)
         article["chunks"] = clean
     return dropped
 
 
 def _source_inventory(store, include_unknown=False):
+    from .training_approval import operator_approvals
+    approvals = operator_approvals(store)
     sql = (
         "SELECT s.url,s.host,s.title,s.rights_status,s.noai,"
         "s.sha256,t.clean_path,t.words,t.characters,t.quality_score "
@@ -164,10 +176,11 @@ def _source_inventory(store, include_unknown=False):
     seen = set()
     for row in store.db.execute(sql):
         url, rights = str(row["url"]), str(row["rights_status"])
+        operator_approved = (url, row["sha256"]) in approvals
         reason = None
         if int(row["noai"]):
             reason = "publisher_noai_signal"
-        elif rights == "UNKNOWN" and not include_unknown:
+        elif rights == "UNKNOWN" and not include_unknown and not operator_approved:
             reason = "unknown_rights_requires_explicit_research_opt_in"
         elif rights not in ("CC0-1.0", "PUBLIC-DOMAIN", "UNKNOWN"):
             reason = "unrecognized_rights_metadata"
@@ -197,6 +210,7 @@ def _source_inventory(store, include_unknown=False):
             "url": url, "host": str(row["host"]).casefold(),
             "title": str(row["title"]), "sha256": str(row["sha256"]),
             "rights": rights, "script_hint": _language(text),
+            "operator_training_approved": operator_approved,
             "words": int(row["words"]), "quality_heuristic": float(row["quality_score"]),
             "chunks": chunks,
         })
@@ -326,6 +340,7 @@ def freeze_dataset(store, include_unknown=False, diagnostic=False):
         "eligible_articles": [{
             "url": a["url"], "source_sha256": a["sha256"],
             "host": a["host"], "rights": a["rights"],
+            "operator_training_approved": a["operator_training_approved"],
             "script_hint": a["script_hint"], "chunks": len(a["chunks"]),
         } for a in articles],
         "excluded_by_reason": dict(Counter(x["reason"] for x in exclusions)),

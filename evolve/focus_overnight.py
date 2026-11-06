@@ -17,14 +17,17 @@ import time
 from .focus_control import acquire_lock, release_lock, stop_requested
 
 from .focus_data import get_profile, topic_relevance, arabic_curiosity, review_leads
-from .focus_discovery import _candidate_link, relevant_links, run_one_search
+from .focus_discovery import (_candidate_link, relevant_links, run_one_search,
+                              publisher_key, arabic_candidate_priority)
 from .focus_training import train_if_eligible, readiness as training_readiness
 from .focus_sitemaps import discover_publisher_sitemaps
 from .open_corpus import archive_page
+from .plain_corpus import (begin_extraction_run, capture_extraction,
+                           finish_collection_cycle, prepare_focus_dataset)
 from .v119_curiosity import budget_status
 from .web_discovery import (
     canonical_url, extract, fetch_page, detect_declared_rights,
-    WebSourceError,
+    WebSourceError, SourceRedirect,
 )
 
 _KEY = "focus_run_"
@@ -70,6 +73,8 @@ def _source_error_policy(exc):
             return ("redirect_not_followed", False, 0)
         if reason.startswith("Website disallows automated access"):
             return ("robots_disallowed", False, 0)
+        if reason.startswith("Oversized robots.txt"):
+            return ("robots_oversized", False, 0)
         if (reason.startswith("Cannot verify robots.txt") or
                 reason.startswith("Robots availability uncertain")):
             return ("robots_unverifiable", True, 900)
@@ -91,7 +96,7 @@ def _public_state(state):
     return {key: value for key, value in state.items()
             if key not in ("_queue", "_seen", "_seeded", "_last_errors",
                            "_host_day_used", "_host_last_at",
-                           "_host_cooldown_until")}
+                           "_host_cooldown_until", "_publisher_attempts")}
 
 
 def _publish(store, state, phase, *, url=None, event=None, detail=None):
@@ -136,11 +141,61 @@ def _enqueue(state, url, depth=0):
         return False
     if len(state["_queue"]) >= 500:
         return False
-    if url in state["_seen"] or any(item["url"] == url
-                                   for item in state["_queue"]):
+    # Publisher redirects and sitemap links mix Unicode and escaped paths.
+    # Treat those representations as one resource rather than refetching both.
+    identity = _url_identity(url)
+    if any(_url_identity(known) == identity for known in state["_seen"]) or any(
+            _url_identity(item["url"]) == identity for item in state["_queue"]):
         return False
     state["_queue"].append({"url": url, "depth": int(depth)})
     return True
+
+
+def _url_identity(url):
+    parts = urlsplit(url)
+    try:
+        path = unquote(parts.path, errors="strict")
+    except UnicodeError:
+        path = parts.path
+    return (parts.hostname, path, parts.query)
+
+
+def retry_saved_redirects(store, profile_name="saudi-history-ar"):
+    """Explicit recovery after upgrading redirect support; keep failures logged."""
+    from .focus_control import worker_running
+    if worker_running(store, profile_name):
+        raise ValueError("Stop the focus worker before repairing its saved frontier")
+    run = store.get(_KEY + profile_name) or {}
+    frontier = store.get("focus_frontier_" + profile_name) or {}
+    seen = set(frontier.get("seen", []))
+    pending = list(frontier.get("pending", []))
+    known = {_url_identity(item["url"]) for item in pending}
+    rows = store.db.execute(
+        "SELECT DISTINCT url FROM focus_activity_events WHERE profile=? "
+        "AND run_id=? AND kind='source_error' AND detail LIKE 'redirect_not_followed%' "
+        "ORDER BY id", (profile_name, run.get("run_id", ""))).fetchall()
+    added = 0
+    for row in rows:
+        url = _candidate_link(row["url"])
+        if (not url or url not in seen or _url_identity(url) in known
+                or len(pending) >= 500):
+            continue
+        pending.append({"url": url, "depth": 0})
+        known.add(_url_identity(url))
+        seen.discard(url)
+        added += 1
+    if added:
+        frontier.update(seen=sorted(seen), pending=pending)
+        store.put("focus_frontier_" + profile_name, frontier)
+        run["pending_research_urls"] = len(pending)
+        store.put(_KEY + profile_name, run)
+        store.append_focus_activity(
+            profile_name, run["run_id"], _utc(), "redirect_recovery_queued",
+            phase="worker_stopped", detail=str(added) +
+            " previously refused redirect URLs queued for paced access checks")
+    return {"status": "queued" if added else "no_redirects_to_recover",
+            "redirect_sources_requeued": added, "pending_urls": len(pending),
+            "worker_started": False}
 
 
 def recover_cached_source_links(store, state, profile_name, scan_limit=6):
@@ -153,7 +208,9 @@ def recover_cached_source_links(store, state, profile_name, scan_limit=6):
     """
     if not 1 <= int(scan_limit) <= 20:
         raise ValueError("scan_limit must be 1..20")
-    key = "focus_archive_link_scans_" + profile_name
+    # Revisit immutable snapshots once after the broader citation extractor
+    # upgrade; earlier scans missed opaque external reference URLs.
+    key = "focus_archive_link_scans_v2_" + profile_name
     reviewed = store.get(key, {}) or {}
     observations = store.get(_HISTORY + profile_name, []) or []
     root = (store.root / "web_corpus" / "raw").resolve()
@@ -232,8 +289,8 @@ def plan(profile_name="saudi-history-ar", extra_urls=None):
         "language": profile["language"],
         "initial_seed_hosts": list(profile["initial_seed_hosts"]),
         "no_permanent_website_allowlist": True,
-        "discovery": "cross_publisher_topical_links_and_keyless_headless_search",
-        "search_provider": "duckduckgo (Google/Bing automated result access blocked by current policies)",
+        "discovery": "publisher_balanced_links_citations_sitemaps_and_optional_web_search",
+        "search_provider": "auto (official Brave API when configured, otherwise policy-checked DuckDuckGo)",
         "search_api_key_required": False,
         "optional_browser_install_needed": True,
         "seed_urls": list(dict.fromkeys(seeds)),
@@ -271,7 +328,7 @@ def init_state(store, profile_name, extra_urls=None, max_pages=24):
         "pages_day_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         "until_stopped": False,
         "no_fixed_quotas": False,
-        "browser_search_provider": "duckduckgo",
+        "browser_search_provider": "auto",
         "minimum_host_gap_seconds": 20,
         "_host_last_at": {},
         "_host_cooldown_until": {},
@@ -347,6 +404,14 @@ def init_state(store, profile_name, extra_urls=None, max_pages=24):
         saved_frontier.get("host_cooldown_until", {}))
     for url in base["seed_urls"]:
         _enqueue(state, url)
+    # Preserve historical representation across restarts. This is a queue
+    # priority, independent of daily quotas and strict per-origin pacing.
+    state["_publisher_attempts"] = {}
+    for record in store.get(_HISTORY + profile_name, []) or []:
+        key = publisher_key(record.get("url", ""))
+        if key:
+            state["_publisher_attempts"][key] = (
+                state["_publisher_attempts"].get(key, 0) + 1)
     store.put(_KEY + profile_name, _public_state(state))
     return state
 
@@ -403,6 +468,16 @@ def _run_page(store, settings, state, profile, fetcher=None,
         earliest = None
         item = None
         now = time_fn()
+        autonomous=(store.get('focus_execution_policy') or {}).get('autonomous_pipeline',False)
+        exploration_turn=state['pages_attempted']%5==4
+        def scheduling_rank(candidate):
+            fairness=state.get('_publisher_attempts',{}).get(publisher_key(candidate['url']),0)
+            if not autonomous:return (fairness,)
+            language=arabic_candidate_priority(candidate['url'])
+            # Most requests favor likely Arabic articles; reserve every fifth
+            # attempt for unfamiliar publishers so discovery remains open.
+            return (fairness,language) if exploration_turn else (language,fairness)
+        state['_queue'].sort(key=scheduling_rank)
         for _ in range(len(state["_queue"])):
             candidate = state["_queue"].pop(0)
             candidate_host = urlsplit(candidate["url"]).hostname
@@ -462,13 +537,16 @@ def _run_page(store, settings, state, profile, fetcher=None,
     state["pages_attempted"] += 1
     state["pages_attempted_today"] += 1
     state["_host_day_used"][host] = state["_host_day_used"].get(host, 0) + 1
+    publisher = publisher_key(url)
+    attempts = state.setdefault("_publisher_attempts", {})
+    attempts[publisher] = attempts.get(publisher, 0) + 1
     _publish(store, state, "reading_article", url=url,
              event="fetch_started")
     try:
         # fetch_page already enforces TLS, DNS public-only, robots, MIME,
         # response size and refusal to follow redirects.
         html = fetcher(url) if fetcher else fetch_page(url, settings)
-        content, title, links, noai = extract(html)
+        content, title, links, noai, raw_text = extract(html, include_raw=True)
         raw_bytes = len(html) if isinstance(html, bytes) else len(
             html.encode("utf-8"))
         utf8_tokens = len(content.encode("utf-8"))
@@ -482,8 +560,23 @@ def _run_page(store, settings, state, profile, fetcher=None,
         _publish(store, state, "checking_language_and_relevance", url=url,
                  event="article_read", detail=(
                      str(utf8_tokens) + " UTF-8 byte tokens extracted"))
-        quality = topic_relevance(content, title, profile)
-        if not quality["language_ok"] or not quality["topical"] or len(content) < 400:
+        enhanced=(store.get('focus_execution_policy') or {}).get('article_body_training',False)
+        quality_text=content
+        capture_options={}
+        if enhanced:
+            from .owned_corpus import article_body
+            from .open_corpus import normalize_web_text
+            quality_text=article_body(html)
+            capture_options={'clean_text':quality_text,'approval_parent_sha256':
+                hashlib.sha256(normalize_web_text(content).encode('utf-8')).hexdigest()}
+        quality = topic_relevance(quality_text, title, profile)
+        if state.get("current_extraction_run_id"):
+            begin_extraction_run(store, state["current_extraction_run_id"], state["profile"])
+            capture_extraction(store, state["current_extraction_run_id"], state["pages_attempted"],
+                url, title, html, raw_text, noai=noai,
+                profile_match=quality["language_ok"] and quality["topical"] and len(quality_text) >= 400,
+                **capture_options)
+        if not quality["language_ok"] or not quality["topical"] or len(quality_text) < 400:
             state["skipped_off_topic_or_non_arabic"] += 1
             reason = (
                 "non_arabic" if not quality["language_ok"] else
@@ -603,6 +696,22 @@ def _run_page(store, settings, state, profile, fetcher=None,
             "new_links_queued": added, "new_publisher_links": external,
         }
     except Exception as exc:
+        if isinstance(exc, SourceRedirect):
+            chain = list(item.get("redirect_chain", [])) + [url]
+            target = _candidate_link(exc.target_url)
+            if (target and len(chain) <= 5 and
+                    _url_identity(target) not in {_url_identity(u) for u in chain}):
+                queued = _enqueue(state, target, depth)
+                if queued:
+                    state["_queue"][-1]["redirect_chain"] = chain
+                _publish(store, state, "redirect_destination_scheduled", url=url,
+                         event="source_redirect", detail=(
+                             str(exc.status_code) + " · " +
+                             ("destination queued" if queued else "destination already known") +
+                             " · " + target))
+                return {"status": "redirect_queued" if queued else "redirect_already_known",
+                        "url": url, "redirect_url": target}
+            exc = WebSourceError("Redirect refused; loop, hop limit or ineligible destination")
         state["errors"] += 1
         reason, transient, delay = _source_error_policy(exc)
         if reason == "http_429_rate_limited":
@@ -621,6 +730,7 @@ def _run_page(store, settings, state, profile, fetcher=None,
             retry_queued = True
         state["last_errors"] = (state["last_errors"] + [{
             "url": url, "error": reason, "error_type": type(exc).__name__,
+            "message": str(exc)[:300],
             "retry_scheduled": retry_queued,
             "retry_after_seconds": retry_delay if retry_queued else None,
         }])[-10:]
@@ -670,7 +780,7 @@ def cycle(store, settings, state, pages=3, train_steps=40,
     state["search_status"] = search.get("status", "unknown")
     state["last_search_diagnostic"] = {
         key: search[key] for key in (
-            "status", "provider", "error_type", "error_phase",
+            "status", "provider", "query", "error_type", "error_phase",
             "hint", "retry_after_seconds",
         ) if key in search and search[key] is not None
     }
@@ -683,10 +793,11 @@ def cycle(store, settings, state, pages=3, train_steps=40,
     _publish(store, state, "search_finished", event="search_result",
              detail=(state["search_status"] + " · " + str(queued_search)
                      + " new source URLs" +
+                     (' · query: '+str(search['query']) if search.get('query') else '') +
                      (" · " + str(search["error_type"])
                       if search.get("error_type") else "")))
     recovery = None
-    if state.get("no_fixed_quotas") and not state["_queue"] and not stop_requested(
+    if state.get("no_fixed_quotas") and not stop_requested(
             store, state["run_id"], state["profile"]):
         # Search engines can lawfully disallow automated results. Re-examine
         # previously archived HTML *locally* for relevant candidate links.
@@ -700,7 +811,20 @@ def cycle(store, settings, state, pages=3, train_steps=40,
                          " cached sources scanned · " +
                          str(recovery["new_candidate_urls"]) +
                          " new candidate URLs · 0 network requests"))
-    if (state.get("no_fixed_quotas") and not state["_queue"] and
+    # An existing queue can be dominated by one publisher or held on retry.
+    # Neither should prevent discovery of other independently checked sites.
+    now = time_fn()
+    blocked_hosts = {
+        host for host, until in state.get("_host_cooldown_until", {}).items()
+        if float(until or 0) > now}
+    blocked_hosts.update(
+        host for host, last in state.get("_host_last_at", {}).items()
+        if 0 <= now - float(last or 0) < state.get("minimum_host_gap_seconds", 20))
+    ready_publishers = {
+        publisher_key(item["url"]) for item in state["_queue"]
+        if float(item.get("retry_at", 0) or 0) <= now
+        and urlsplit(item["url"]).hostname not in blocked_hosts}
+    if (state.get("no_fixed_quotas") and len(ready_publishers) < 3 and
             (fetcher is None or sitemap_fn is not None) and
             not stop_requested(store, state["run_id"], state["profile"])):
         # If both browser search and local archive links yield nothing, try
@@ -709,6 +833,9 @@ def cycle(store, settings, state, pages=3, train_steps=40,
         # link discovery only; actual page fetches still use fetch_page.
         sitemap = discover_publisher_sitemaps(
             store, profile, observations, sitemap_fn=sitemap_fn,
+            prefer_new_publishers=True,
+            candidate_urls=[item["url"] for item in state["_queue"]],
+            excluded_hosts=blocked_hosts,
             already_seen=state["_seen"] | {
                 item["url"] for item in state["_queue"]})
         queued_sitemap = 0
@@ -749,6 +876,8 @@ def cycle(store, settings, state, pages=3, train_steps=40,
                      if sitemap.get("sitemap_failures") else "")))
     outcomes = []
     pages_at_cycle_start = int(state["pages_attempted"])
+    extraction_id = state["run_id"] + "-batch-" + str(state["cycles_completed"] + 1).zfill(6)
+    state["current_extraction_run_id"] = extraction_id
     pacing_waits = 0
     checks = 0
     # Guard against an unexpectedly malformed/duplicate frontier. In
@@ -874,11 +1003,44 @@ def cycle(store, settings, state, pages=3, train_steps=40,
     )
     observations = store.get(_HISTORY + state["profile"], []) or []
     state["research_review_leads"] = review_leads(observations)[:20]
+    _publish(store, state, "preparing_plain_corpus", event="corpus_preparation_started")
+    enhanced=(store.get('focus_execution_policy') or {}).get('article_body_training',False)
+    if enhanced:
+        from .owned_corpus import prepare_owned_corpus
+        dataset=prepare_owned_corpus(store,state['profile'])
+        if (store.get('focus_execution_policy') or {}).get('supervised_qa'):
+            from .supervised_corpus import prepare_supervised_corpus
+            qa_dataset=prepare_supervised_corpus(store,dataset)
+            state['supervised_qa_dataset']=qa_dataset
+            _publish(store,state,'supervised_qa_prepared',event='supervised_qa_prepared',detail=qa_dataset['directory'])
+    else:
+        prepared = training_readiness(store, state["profile"])
+        dataset = prepare_focus_dataset(store, state["profile"], prepared) if prepared["status"] == "ready" else None
+    bundle = finish_collection_cycle(store, extraction_id, state["profile"], dataset,
+        reason=state.get("last_cycle_idle_reason"), attempted=completed_page_attempts)
+    summary = {k: bundle.get(k) for k in (
+        "status", "directory", "extracted_pages", "unique_clean_texts", "duplicate_clean_texts",
+        "training_eligible_unique_texts", "training_dataset", "reason", "audit_log")}
+    state["last_cycle_extraction"] = summary
+    if bundle["extracted_pages"]:
+        state["last_extraction_bundle"] = summary
+    elif not state.get("last_extraction_bundle"):
+        state["last_extraction_bundle"] = store.get("plain_extraction_latest_populated_" + state["profile"])
+    state["current_extraction_run_id"] = None
+    _publish(store, state, "plain_corpus_prepared" if bundle["extracted_pages"] else "no_text_extracted",
+             event="corpus_batch_prepared" if bundle["extracted_pages"] else "corpus_batch_empty",
+             detail=(str(bundle["extracted_pages"]) + " extracted · " +
+                     str(bundle["unique_clean_texts"]) + " unique clean texts · " +
+                     (("raw.txt / clean.txt saved · "+str(bundle.get('training_eligible_unique_texts',0))+" eligible texts in corpus.txt"+
+                       (' · training uses previously saved corpus' if not bundle.get('training_eligible_unique_texts') else '')) if bundle["extracted_pages"] else
+                      "no article text read; no empty dataset created; " + str(bundle.get("reason")))))
     base_steps = int(state["training_steps_this_run"])
     base_tokens = int(state["training_byte_tokens_processed"])
     state["current_training_steps_done"] = 0
     state["current_training_steps_target"] = 0
     state["current_training_loss"] = None
+    language_start=(store.get('owned_training_cursor_'+state['profile']) or {}).get('attempted_training_bytes',0)
+    qa_start=(store.get('focus_supervised_qa_cursor') or {}).get('input_bytes',0)
 
     def neural_progress(step, target, loss):
         # Exactly BATCH=8 windows * CONTEXT=48 UTF-8 byte token IDs
@@ -887,14 +1049,17 @@ def cycle(store, settings, state, pages=3, train_steps=40,
         state["current_training_steps_done"] = step
         state["current_training_steps_target"] = target
         state["current_training_loss"] = round(float(loss), 6)
+        state['current_training_task']=(store.get('focus_training_last_step') or {}).get('task','language')
         state["training_steps_this_run"] = base_steps + step
         state["training_byte_tokens_processed"] = (
-            base_tokens + step * BATCH * CONTEXT)
+            base_tokens + max(0,(store.get('owned_training_cursor_'+state['profile']) or {}).get('attempted_training_bytes',0)-language_start)
+            +max(0,(store.get('focus_supervised_qa_cursor') or {}).get('input_bytes',0)-qa_start)
+            if enhanced else base_tokens + step * BATCH * CONTEXT)
         _publish(
             store, state, "training_neural_weights",
             event="neural_optimizer_step",
             detail=(str(step) + "/" + str(target) +
-                    " · actual optimizer update · loss " +
+                    " · " + state['current_training_task'] + " optimizer update · loss " +
                     str(round(float(loss), 6))),
         )
 
@@ -913,6 +1078,8 @@ def cycle(store, settings, state, pages=3, train_steps=40,
             "status", "reason", "steps", "accepted", "checkpoint",
             "sha256", "validation_before", "validation_after",
             "trainable_parameters", "unique_approved_training_bytes",
+            "plain_dataset_directory",
+            "supervised_qa_steps", "qa_validation_loss_before", "qa_validation_loss_after",
         ) if key in training}
     if training.get("status") == "trained":
         state["training_runs_with_new_weights"] += 1
@@ -922,7 +1089,11 @@ def cycle(store, settings, state, pages=3, train_steps=40,
             base_tokens + int(training.get("training_window_bytes_seen", 0)))
     _publish(store, state, "training_result", event="training_result",
              detail=(training["status"] + " · " +
-                     str(training.get("reason") or "")[:200]))
+                     (('checkpoint accepted' if training.get('accepted') else 'candidate rejected; accepted checkpoint retained')
+                      if training.get('status')=='trained' else str(training.get("reason") or "")[:200]) +
+                     (' · '+str(training['supervised_qa_steps'])+' supervised QA steps · held-out answer loss '+
+                      str(round(training['qa_validation_loss_before'],4))+' → '+str(round(training['qa_validation_loss_after'],4))
+                      if training.get('qa_validation_loss_after') is not None else '')))
     _publish(store, state, "cycle_finished", event="cycle_finished",
              detail=("research · training " + training["status"]))
     state["cycles_completed"] += 1
@@ -973,6 +1144,7 @@ def cycle(store, settings, state, pages=3, train_steps=40,
         "discovered_publisher_hosts_total":
             state["distinct_research_hosts"],
         "outcomes": outcomes,
+        "extraction_bundle": state["last_cycle_extraction"],
     }
 
 
@@ -982,8 +1154,7 @@ def report(store, profile_name="saudi-history-ar"):
     observations = store.get(_HISTORY + profile_name, []) or []
     model = store.get("focus_train_latest_" + profile_name) or {}
     approved = training_readiness(store, profile_name)
-    approved.pop("_pages", None)
-    approved.pop("_assignments", None)
+    approved = {k: v for k, v in approved.items() if not k.startswith("_")}
     source_hosts = sorted({entry.get("host") for entry in observations})
     cumulative_research = len(observations)
     cumulative_questions = sum(len(x.get("curiosity", []))
@@ -999,7 +1170,15 @@ def report(store, profile_name="saudi-history-ar"):
         "discovery": {
             "cross_publisher_topic_links_enabled": True,
             "no_fixed_website_allowlist": True,
-            "browser_search_requires_api_key": False,
+            "browser_search_requires_api_key": (
+                (run or {}).get("browser_search_provider") == "brave" or (
+                    (run or {}).get("browser_search_provider") == "auto" and
+                    bool(os.environ.get("BRAVE_SEARCH_API_KEY", "").strip()))),
+            "official_web_search_api_available": True,
+            "official_web_search_api_configured": bool(
+                os.environ.get("BRAVE_SEARCH_API_KEY", "").strip()),
+            "independent_publisher_priority_enabled": True,
+            "external_citation_discovery_enabled": True,
             "search_provider": (run or {}).get(
                 "browser_search_provider", "duckduckgo"),
             "no_fixed_quotas": bool(
@@ -1037,7 +1216,7 @@ def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
         train_steps=40, extra_urls=None, fetcher=None, sleep_fn=time.sleep,
         monotonic_fn=time.monotonic, until_stopped=False,
         search_fn=None, no_fixed_quotas=False,
-        search_provider="duckduckgo"):
+        search_provider="auto"):
     """User-started local process; continuous mode ends ONLY on manual stop.
 
     Per-cycle page targets count real permitted fetch attempts, not publisher
@@ -1046,11 +1225,18 @@ def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
     robots, TLS, license review and unchanged-dataset training restrictions do
     not reset. With no new authorized work, it remains awake but idle.
     """
+    policy=store.get('focus_execution_policy') or {}
+    if policy.get('engine')=='pytorch' and policy.get('article_body_training') and not policy.get('autonomous_pipeline'):
+        from .pytorch_learning import run_pytorch
+        return run_pytorch(store,steps=int(train_steps),context=256,until_stopped=until_stopped)
+    if policy.get('engine')=='first_party_c':
+        from .owned_learning import run_owned
+        return run_owned(store,steps=int(train_steps),context=256,until_stopped=until_stopped)
     if not until_stopped and not 0 < float(hours) <= 12:
         raise ValueError("hours must be within (0, 12]")
     if no_fixed_quotas and not until_stopped:
         raise ValueError("--no-fixed-quotas requires --until-stopped")
-    if search_provider not in ("duckduckgo", "google", "bing"):
+    if search_provider not in ("catalog", "auto", "brave", "duckduckgo", "google", "bing"):
         raise ValueError("Unknown browser search provider")
     if not 1 <= int(interval_minutes) <= 60:
         raise ValueError("interval-minutes must be 1..60")
@@ -1062,6 +1248,8 @@ def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
         state["until_stopped"] = bool(until_stopped)
         state["no_fixed_quotas"] = bool(no_fixed_quotas)
         state["browser_search_provider"] = search_provider
+        state['training_engine']='pytorch' if policy.get('engine')=='pytorch' else 'legacy_pytorch'
+        state['network_enabled']=True
         state["pages_per_cycle_target"] = int(pages_per_cycle)
         state["cycle_interval_minutes"] = int(interval_minutes)
         state["worker_pid"] = os.getpid()
@@ -1108,12 +1296,43 @@ def run(store, settings, profile_name="saudi-history-ar", hours=8.0,
             ),
         }, ensure_ascii=False), flush=True)
         try:
+            if policy.get('autonomous_pipeline'):
+                from .supervised_corpus import prepare_supervised_corpus,read_supervised_corpus,plan_curiosity
+                from .pytorch_learning import TorchGRU
+                qa_descriptor=prepare_supervised_corpus(store)
+                qa_examples=read_supervised_corpus(qa_descriptor)
+                accepted=store.get('focus_train_latest_'+profile_name) or {}
+                planner,_=TorchGRU.load(store.root,accepted['checkpoint'],accepted['sha256'])
+                tasks=plan_curiosity(store,planner,qa_examples['train']);planner.close()
+                _publish(store,state,'autonomous_questions_planned',event='curiosity_questions_planned',
+                         detail=str(len(tasks))+' source questions ranked by your local model')
             while not operator_stop() and (
                     end is None or monotonic_fn() < end):
+                if policy.get('autonomous_pipeline'):
+                    import shutil
+                    if shutil.disk_usage(store.root).free<2_000_000_000:
+                        _publish(store,state,'storage_capacity_wait',event='autonomous_storage_wait',
+                                 detail='Less than 2GB free; preserving saved data; collection/training waits for free space')
+                        for _ in range(30):
+                            if operator_stop():break
+                            sleep_fn(2)
+                        continue
                 _rollover_if_new_utc_day(state)
-                result = cycle(store, settings, state, pages=pages_per_cycle,
-                               train_steps=train_steps, fetcher=fetcher,
-                               sleep_fn=sleep_fn, search_fn=search_fn)
+                try:
+                    result = cycle(store, settings, state, pages=pages_per_cycle,
+                                   train_steps=train_steps, fetcher=fetcher,
+                                   sleep_fn=sleep_fn, search_fn=search_fn)
+                except (OSError,ValueError,RuntimeError) as exc:
+                    if not policy.get('autonomous_pipeline'):raise
+                    control=store.get('focus_autonomous_learning_control') or {}
+                    control['learning_rate']=max(.00005,float(control.get('learning_rate',.0003))*.5)
+                    control['last_error_type']=type(exc).__name__;store.put('focus_autonomous_learning_control',control)
+                    _publish(store,state,'autonomous_recovery_wait',event='autonomous_retry',
+                             detail=type(exc).__name__+': '+str(exc)[:250]+'; retained accepted checkpoint; retry in 60 seconds')
+                    for _ in range(30):
+                        if operator_stop():break
+                        sleep_fn(2)
+                    continue
                 state["hours_elapsed"] = round(
                     (monotonic_fn() - start) / 3600, 3)
                 state["heartbeat_at_utc"] = _utc()

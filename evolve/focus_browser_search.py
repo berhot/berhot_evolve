@@ -15,6 +15,7 @@ All search text/results are merely discovery hints, never training data.
 from urllib.parse import quote, urlsplit
 from urllib.robotparser import RobotFileParser
 import re
+import os
 import urllib.request
 
 from .web_discovery import USER_AGENT, canonical_url
@@ -48,7 +49,7 @@ _BLOCK_TEXT = (
 
 
 def search_engines():
-    return {
+    engines = {
         name: {
             "headless_supported": bool(spec["automated_results_allowed"]),
             "no_api_key_needed": True,
@@ -56,6 +57,17 @@ def search_engines():
         }
         for name, spec in _ENGINES.items()
     }
+    engines["brave"] = {
+        "headless_supported": False, "official_api_supported": True,
+        "no_api_key_needed": False,
+        "configured": bool(os.environ.get("BRAVE_SEARCH_API_KEY", "").strip()),
+        "reason": "Official web search API; optional BRAVE_SEARCH_API_KEY"}
+    engines["auto"] = {
+        "headless_supported": True, "no_api_key_needed": False,
+        "reason": "Brave API when configured, otherwise policy-checked DuckDuckGo"}
+    engines['catalog']={'headless_supported':False,'official_api_supported':True,'no_api_key_needed':True,
+                        'reason':'Public Arabic MediaWiki search and reference links; discovery only, no model API'}
+    return engines
 
 
 def _robots_allows(url, *, fetch_robots=None):
@@ -137,6 +149,14 @@ def headless_search(query, provider="duckduckgo", *, robots_check=None,
     installed Chromium binaries. None of the user's browser cookies/login
     sessions or data are loaded.
     """
+    if provider == 'catalog':
+        from .catalog_discovery import catalog_search
+        return catalog_search(query)
+    if provider == "auto":
+        provider = "brave" if os.environ.get("BRAVE_SEARCH_API_KEY", "").strip() else "duckduckgo"
+    if provider == "brave":
+        from .focus_search_api import brave_search
+        return brave_search(query)
     if provider not in _ENGINES:
         return {"status": "unknown_search_engine", "results": [],
                 "engine": provider}

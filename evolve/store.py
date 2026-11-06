@@ -73,6 +73,11 @@ class Store:
             );
             CREATE INDEX IF NOT EXISTS web_corpus_sources_sha_idx
               ON web_corpus_sources(sha256);
+            CREATE TABLE IF NOT EXISTS corpus_training_approvals (
+                url TEXT NOT NULL, clean_sha256 TEXT NOT NULL,
+                approved_at_utc TEXT NOT NULL, approval_reason TEXT NOT NULL,
+                PRIMARY KEY(url,clean_sha256)
+            );
             CREATE TABLE IF NOT EXISTS page_observations (
                 url TEXT PRIMARY KEY, title TEXT NOT NULL, sha256 TEXT NOT NULL,
                 characters INTEGER NOT NULL, extracted_concepts TEXT NOT NULL,

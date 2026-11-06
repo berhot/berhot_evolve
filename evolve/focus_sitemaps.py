@@ -13,7 +13,7 @@ import re
 import time
 import urllib.request
 
-from .focus_discovery import _candidate_link
+from .focus_discovery import _candidate_link, diverse_urls
 from .web_discovery import (
     USER_AGENT, canonical_url, check_public_dns, make_fetcher, WebSourceError,
 )
@@ -253,27 +253,26 @@ def _fetch_publisher_sitemaps(host, *, language="ar",
 
 def discover_publisher_sitemaps(store, profile, observations, *,
                                 sitemap_fn=None, now=None,
-                                max_candidates=25, already_seen=None):
+                                max_candidates=25, already_seen=None,
+                                prefer_new_publishers=False,
+                                candidate_urls=(), excluded_hosts=()):
     """Try one due source publisher each time the research frontier runs dry.
 
     Rotates hosts deterministically across cycles, with durable 6h cooldown.
-    The publisher list grows only from profile seeds and successfully archived
-    sources, not arbitrary URLs embedded in scraped page text.
+    The publisher list grows from seeds, archived sources and sanitized
+    topical frontier links. In broad discovery mode an unscanned publisher
+    takes priority over a dominant publisher's cached URL backlog.
     """
     now = time.time() if now is None else float(now)
     known = set(already_seen or ())
     backlog_key = "focus_sitemap_backlog_" + profile["name_ar"]
     backlog = store.get(backlog_key) or []
-    if backlog:
+    def cached_candidates():
         deliver = []
-        leftover = []
-        for link in backlog:
-            if link in known:
-                continue
-            if len(deliver) < max_candidates:
-                deliver.append(link)
-            else:
-                leftover.append(link)
+        unseen = [link for link in backlog
+                  if link not in known and _candidate_link(link)]
+        deliver = diverse_urls(unseen, max_candidates)
+        leftover = [link for link in unseen if link not in set(deliver)]
         store.put(backlog_key, leftover)
         if deliver:
             return {
@@ -285,11 +284,19 @@ def discover_publisher_sitemaps(store, profile, observations, *,
                 "network_requests": 0,
                 "candidate_urls_are_not_training_rights": True,
             }
+        return None
+
+    if backlog and not prefer_new_publishers:
+        cached = cached_candidates()
+        if cached:
+            return cached
 
     key = "focus_sitemap_checks_" + profile["name_ar"]
     history = store.get(key) or {}
     hosts = []
-    for url in profile["seeds"]:
+    for url in list(profile["seeds"]) + list(candidate_urls)[:500]:
+        if not _candidate_link(url):
+            continue
         host = urlsplit(url).hostname
         if host and host not in hosts:
             hosts.append(host)
@@ -301,11 +308,28 @@ def discover_publisher_sitemaps(store, profile, observations, *,
             hosts.append(host)
     due = [
         host for host in hosts
-        if ((history.get(host) or {}).get("scan_version") !=
+        if host not in excluded_hosts and (
+            (history.get(host) or {}).get("scan_version") !=
             _SITEMAP_SCAN_VERSION or
             now - float((history.get(host) or {}).get("checked_at", 0)) >=
             _HOST_GAP_SECONDS)
     ]
+    if prefer_new_publishers:
+        # Probe fresh origins before draining cached links; once every origin
+        # has had a turn, reuse the cache without unnecessary network work.
+        fresh = [host for host in due if host not in history]
+        if backlog and not fresh:
+            cached = cached_candidates()
+            if cached:
+                return cached
+        counts = {}
+        for record in observations:
+            host = urlsplit(record.get("url", "")).hostname
+            counts[host] = counts.get(host, 0) + 1
+        due.sort(key=lambda host: (
+            host in history, counts.get(host, 0),
+            float((history.get(host) or {}).get("checked_at", 0)),
+            hosts.index(host)))
     if not due:
         soonest = min(
             (_HOST_GAP_SECONDS - (now -
@@ -343,6 +367,10 @@ def discover_publisher_sitemaps(store, profile, observations, *,
     unseen = [url for url in all_topical if url not in known]
     selected, remainder = (
         unseen[:max_candidates], unseen[max_candidates:2000])
+    # Never discard another publisher's pending sitemap candidates.
+    remainder = diverse_urls(
+        [url for url in backlog if url not in known and url not in selected]
+        + remainder, 6000)
     store.put(backlog_key, remainder)
     history[host] = {
         "checked_at": now, "status": result.get("status", "unknown"),

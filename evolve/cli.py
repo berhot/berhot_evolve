@@ -28,6 +28,8 @@ def main(argv=None):
     focus_plan.add_argument("--profile", choices=["saudi-history-ar"], default="saudi-history-ar")
     focus_report = sub.add_parser("focus-report", help="Read-only morning progress and true training-weight statistics")
     focus_report.add_argument("--profile", choices=["saudi-history-ar"], default="saudi-history-ar")
+    retry_redirects = sub.add_parser("focus-retry-redirects", help="Requeue saved redirect failures after upgrade; worker must be stopped")
+    retry_redirects.add_argument("--profile", choices=["saudi-history-ar"], default="saudi-history-ar")
     focus_run = sub.add_parser("focus-overnight", help="Opt-in bounded local overnight Arabic research agent; needs Mac awake")
     focus_run.add_argument("--profile", choices=["saudi-history-ar"], default="saudi-history-ar")
     focus_run.add_argument("--network", action="store_true", help="Required explicit consent for robots-compliant site access")
@@ -37,8 +39,8 @@ def main(argv=None):
     focus_run.add_argument("--no-fixed-quotas", action="store_true",
         help="Run without numeric page/search stop counts; still respect robots, backoff and resource pacing")
     focus_run.add_argument("--browser-search-provider",
-        choices=["duckduckgo", "google", "bing"], default="duckduckgo",
-        help="Keyless headless search; Google/Bing refuse unattended access while their policies prohibit it")
+        choices=["catalog", "auto", "brave", "duckduckgo", "google", "bing"], default="auto",
+        help="auto uses the official Brave API when BRAVE_SEARCH_API_KEY is set, otherwise policy-checked DuckDuckGo; source links and sitemaps remain available")
     focus_stop = sub.add_parser("focus-stop", help="Request graceful stop of the running Saudi-history worker")
     focus_stop.add_argument("--profile", choices=["saudi-history-ar"], default="saudi-history-ar")
     focus_run.add_argument("--interval-minutes", type=int, default=2,
@@ -50,6 +52,32 @@ def main(argv=None):
     sub.add_parser("status", help="Show persistent learner status")
     sub.add_parser("model-audit", help="Read-only actual local knowledge, saved models, autonomy and dependency inventory")
     sub.add_parser("corpus-status", help="Show collected web pages, exact dedup, rights metadata and training separation")
+    sub.add_parser("dataset-status", help="Show plain dataset folders and recorded training history")
+    sub.add_parser("dataset-organize", help="Organize plain datasets using saved training evidence")
+    sub.add_parser('owned-prepare', help='Build article-body plain datasets using first-party code only')
+    sub.add_parser('owned-migrate', help='Import your own saved weights into the first-party engine without torch')
+    sub.add_parser('owned-audit',help='Report the active owned runtime, source hashes and model provenance')
+    sub.add_parser('focus-restore-pytorch',help='Restore PyTorch while preserving your own learned weights and optimizer state')
+    focus_learn=sub.add_parser('focus-learn',help='Train your own GRU with PyTorch on the cleaned local dataset')
+    focus_learn.add_argument('--steps',type=int,default=120)
+    focus_learn.add_argument('--context-bytes',type=int,default=256)
+    focus_learn.add_argument('--until-stopped',action='store_true')
+    full_pass=sub.add_parser('focus-full-pass',help='One resumable full pass over all saved training article bytes and QA examples')
+    full_pass.add_argument('--context-bytes',type=int,default=256)
+    full_pass.add_argument('--resume-collection',action='store_true',help='Resume the authorized autonomous network pipeline after completing the pass')
+    autonomous=sub.add_parser('focus-autonomous',help='Autonomous discovery, raw/clean corpus, language+QA training and evaluation')
+    autonomous.add_argument('--network',action='store_true',required=True)
+    autonomous.add_argument('--until-stopped',action='store_true')
+    autonomous.add_argument('--pages-per-cycle',type=int,default=5)
+    autonomous.add_argument('--train-steps',type=int,default=120)
+    autonomous.add_argument('--interval-minutes',type=int,default=2)
+    sub.add_parser('focus-qa-prepare',help='Prepare source-backed extractive QA examples with inherited article splits')
+    owned_learn=sub.add_parser('owned-learn',help='Train with the first-party C engine, entirely offline')
+    owned_learn.add_argument('--steps',type=int,default=120)
+    owned_learn.add_argument('--context-bytes',type=int,default=256)
+    owned_learn.add_argument('--until-stopped',action='store_true')
+    corpus_export = sub.add_parser("corpus-export", help="Export saved Arabic research to raw/clean text and verified plain training shards")
+    corpus_export.add_argument("--profile", choices=["saudi-history-ar"], default="saudi-history-ar")
     corpus_seed = sub.add_parser("corpus-seed", help="Queue 1..20 public HTTPS sites without requiring a CC0 license")
     corpus_seed.add_argument("--urls", nargs="+", required=True)
     corpus_seed.add_argument("--same-host", action="store_true",
@@ -77,6 +105,15 @@ def main(argv=None):
     research_plan = sub.add_parser("research-plan", help="Offline preview of the exact concept's source candidates and publisher groups")
     research_plan.add_argument("--concept", required=True)
     sub.add_parser("v117-sources", help="List archived page URLs, metadata and manual rights-review candidates")
+    approve_corpus = sub.add_parser("corpus-approve-training", help="Record operator training approval for current archived snapshots; preserves license metadata")
+    approve_corpus.add_argument("--reason", required=True)
+    approve_corpus.add_argument("--include-future", action=argparse.BooleanOptionalAction,
+                               default=None, help="Persist approval for future archived snapshots")
+    focus_policy = sub.add_parser("focus-training-policy", help="Configure experimental article holdout for the saved Arabic corpus")
+    focus_policy.add_argument("--allow-article-holdout", action=argparse.BooleanOptionalAction, required=True)
+    focus_capacity = sub.add_parser("focus-model-capacity", help="Increase Arabic model dimensions while preserving accepted checkpoints")
+    focus_capacity.add_argument("--embedding-dim", type=int, required=True)
+    focus_capacity.add_argument("--hidden-size", type=int, required=True)
     rights_review = sub.add_parser("v117-review-rights", help="Attest rights evidence for ONE archived public article; never automatic")
     rights_review.add_argument("--url", required=True)
     rights_review.add_argument("--license", choices=["CC0-1.0", "PUBLIC-DOMAIN"], required=True)
@@ -401,6 +438,16 @@ def main(argv=None):
     infer_parser.add_argument("--use-memory", action="store_true", help="Prepend short retrieved context where block_size permits")
     args = parser.parse_args(argv)
     settings = load_config(args.config)
+    policy_store=Store(settings['storage_root'])
+    try:
+        strict_owned=(policy_store.get('focus_execution_policy') or {}).get('engine')=='first_party_c'
+    finally:
+        policy_store.close()
+    if strict_owned and args.command not in {
+            'owned-prepare','owned-migrate','owned-learn','owned-audit','focus-restore-pytorch','studio','focus-stop','focus-report',
+            'focus-plan','focus-overnight','status','corpus-status','corpus-export','dataset-status',
+            'dataset-organize','corpus-approve-training','errors','concepts','questions','answers'}:
+        parser.error('Legacy/external-runtime commands are disabled in owned mode. Use owned-learn or owned-audit.')
 
     if args.command == "studio":
         from .v118_studio import serve
@@ -411,7 +458,7 @@ def main(argv=None):
         daemon(settings)
         return
     if args.command == "focus-overnight":
-        if not args.network:
+        if not args.network and not strict_owned:
             parser.error("focus-overnight requires --network: no implicit web access")
         from .focus_overnight import run
         focus_store = Store(settings["storage_root"])
@@ -444,6 +491,54 @@ def main(argv=None):
             elif args.command == "corpus-status":
                 from .open_corpus import corpus_status
                 result = corpus_status(store)
+            elif args.command == 'owned-prepare':
+                from .owned_corpus import prepare_owned_corpus
+                result=prepare_owned_corpus(store)
+            elif args.command == 'owned-migrate':
+                from .owned_learning import migrate_owned
+                result=migrate_owned(store)
+            elif args.command == 'focus-restore-pytorch':
+                from .pytorch_learning import restore_pytorch
+                result=restore_pytorch(store)
+            elif args.command == 'focus-learn':
+                from .pytorch_learning import run_pytorch
+                result=run_pytorch(store,steps=args.steps,context=args.context_bytes,until_stopped=args.until_stopped)
+            elif args.command == 'focus-full-pass':
+                from .full_pass_learning import run_full_pass
+                result=run_full_pass(store,context=args.context_bytes)
+                if args.resume_collection and result['status']=='completed':
+                    from .focus_overnight import run
+                    result=run(store,settings,until_stopped=True,no_fixed_quotas=True,pages_per_cycle=5,
+                               train_steps=120,interval_minutes=2,search_provider='catalog')
+            elif args.command == 'focus-qa-prepare':
+                from .supervised_corpus import prepare_supervised_corpus
+                result=prepare_supervised_corpus(store)
+            elif args.command == 'focus-autonomous':
+                from .focus_overnight import run
+                if not 1<=args.train_steps<=120:raise ValueError('train-steps must be 1..120')
+                if not 1<=args.pages_per_cycle<=50:raise ValueError('pages-per-cycle must be 1..50')
+                if not 1<=args.interval_minutes<=60:raise ValueError('interval-minutes must be 1..60')
+                policy=store.get('focus_execution_policy') or {}
+                if policy.get('engine')!='pytorch':raise ValueError('Autonomous pipeline requires your PyTorch model')
+                policy.update(autonomous_pipeline=True,supervised_qa=True,browser_search=True,
+                              search_provider='catalog',external_model_apis=False,pretrained_weights=False)
+                store.put('focus_execution_policy',policy)
+                result=run(store,settings,until_stopped=args.until_stopped,no_fixed_quotas=args.until_stopped,
+                           pages_per_cycle=args.pages_per_cycle,train_steps=args.train_steps,
+                           interval_minutes=args.interval_minutes,search_provider='catalog')
+            elif args.command == 'owned-audit':
+                from .owned_learning import owned_audit
+                result=owned_audit(store)
+            elif args.command == 'owned-learn':
+                from .owned_learning import run_owned
+                result=run_owned(store,steps=args.steps,context=args.context_bytes,until_stopped=args.until_stopped)
+            elif args.command in ("dataset-status", "dataset-organize"):
+                from .dataset_catalog import dataset_inventory, sync_saved_training_records
+                result = (sync_saved_training_records(store) if args.command == "dataset-organize"
+                          else dataset_inventory(store))
+            elif args.command == "corpus-export":
+                from .plain_corpus import export_saved_focus_corpus
+                result = export_saved_focus_corpus(store, args.profile)
             elif args.command == "focus-plan":
                 from .focus_overnight import plan
                 result = plan(profile_name=args.profile)
@@ -483,6 +578,18 @@ def main(argv=None):
             elif args.command == "v117-sources":
                 from .v117_rights import sources
                 result = sources(store)
+            elif args.command == "corpus-approve-training":
+                from .training_approval import approve_current_corpus
+                result = approve_current_corpus(store, args.reason, include_future=args.include_future)
+            elif args.command == "focus-training-policy":
+                from .focus_training import set_article_holdout_policy
+                result = set_article_holdout_policy(store, "saudi-history-ar", args.allow_article_holdout)
+            elif args.command == "focus-model-capacity":
+                from .focus_training import set_model_capacity
+                result = set_model_capacity(store, "saudi-history-ar", args.embedding_dim, args.hidden_size)
+            elif args.command == "focus-retry-redirects":
+                from .focus_overnight import retry_saved_redirects
+                result = retry_saved_redirects(store, args.profile)
             elif args.command == "v117-review-rights":
                 from .v117_rights import review_rights
                 result = review_rights(store, args.url, args.license,

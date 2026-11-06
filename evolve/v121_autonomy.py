@@ -108,9 +108,10 @@ def _canonical(obj):
 
 
 def _source_revision(store):
+    from .training_approval import training_condition
     rows = store.db.execute(
         "SELECT url,sha256,rights_status,noai FROM web_corpus_sources "
-        "WHERE noai=0 AND rights_status IN ('CC0-1.0','PUBLIC-DOMAIN') "
+        "WHERE " + training_condition() + " "
         "ORDER BY url").fetchall()
     # Include the extraction policy in the revision so a stricter policy
     # forces retraining even when source URLs and manual rights stay fixed.

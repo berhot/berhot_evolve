@@ -6,7 +6,7 @@ reusable content enters neural training. No logins, evasion, scripts or files.
 """
 from html.parser import HTMLParser
 from .concept_mining import rank_page_concepts
-from urllib.parse import urlsplit, urljoin, urlunsplit, unquote, quote
+from urllib.parse import urlsplit, urljoin, urlunsplit, unquote, quote, parse_qsl, urlencode
 from urllib.robotparser import RobotFileParser
 import hashlib
 import ipaddress
@@ -18,6 +18,9 @@ import urllib.error
 import urllib.request
 
 _ROBOTS_CACHE = {}  # short-lived, per-process; never override robots decisions
+_ARTICLE_QUERY_FIELDS = {'id','aid','nid','newsid','news_id','storyid','story_id',
+                         'articleid','article_id','p','page','pageid','catid',
+                         'option','task','view','itemid','lang','language'}
 ALLOWED_LICENSES = {"CC0-1.0", "PUBLIC-DOMAIN", "AUTHORIZED-TRAINING"}
 USER_AGENT = "BERHOT-EVOLVE-Research/0.3 (public research crawler)"
 SKIP_TAGS = {"script", "style", "nav", "footer", "svg", "noscript", "iframe", "form"}
@@ -30,6 +33,18 @@ STOPWORDS = set(('the a an and or of in on to for is are was were it this that w
 
 class WebSourceError(ValueError):
     pass
+
+
+class SourceRedirect(WebSourceError):
+    """A same-host HTTPS destination to schedule as a separate paced fetch."""
+    def __init__(self, source_url, target_url, status_code=301):
+        source = canonical_url(source_url)
+        target = canonical_url(urljoin(source, target_url))
+        if urlsplit(source).hostname != urlsplit(target).hostname:
+            raise WebSourceError("Redirect refused; destination must remain on the same HTTPS host")
+        self.target_url = target
+        self.status_code = status_code
+        super().__init__("Same-site redirect requires a paced follow-up")
 
 
 def canonical_url(value):
@@ -52,7 +67,17 @@ def canonical_url(value):
     path = p.path or '/'
     if '\\' in path or re.search(r'%(?:2f|5c|00)', path, re.I):
         raise WebSourceError("Unsafe path encoding")
-    return urlunsplit(('https', host, path, '', ''))
+    # Article IDs often live in the query (e.g. viewfullstory.php?id=123).
+    # Dropping it fetches a different page and collapses distinct articles.
+    if len(p.query)>2000:raise WebSourceError('Oversized URL query')
+    try:
+        fields=parse_qsl(p.query,keep_blank_values=True,max_num_fields=40)
+    except ValueError:
+        raise WebSourceError('Invalid URL query') from None
+    # Keep public document routing fields; arbitrary search/form values and
+    # tracking/session parameters remain excluded from stored source URLs.
+    fields=[(key,value) for key,value in fields if key.casefold() in _ARTICLE_QUERY_FIELDS]
+    return urlunsplit(('https', host, path, urlencode(fields), ''))
 
 
 def check_public_dns(host):
@@ -81,9 +106,26 @@ class PageExtractor(HTMLParser):
         self.license_links=[]
         self.headings=[]
         self.heading_stack=[]
+        self.server_form_document=False
+        self.form_skips=[]
+    def feed(self,data):
+        # SharePoint/ASP.NET wraps the entire published article in a POST
+        # form. Its hidden state fields identify a document wrapper, not a
+        # user-input form. Skipping it discards the whole article body.
+        self.server_form_document = self.server_form_document or bool(re.search(
+            r'<input\b[^>]*(?:name|id)\s*=\s*[\"\x27]__(?:VIEWSTATE|REQUESTDIGEST)[\"\x27]',
+            data, re.I))
+        super().feed(data)
     def handle_starttag(self,tag,attrs):
         props=dict(attrs)
-        if tag in SKIP_TAGS:
+        skip = tag in SKIP_TAGS
+        if tag=='form':
+            wrapper = (self.server_form_document and
+                       props.get('id','').casefold() in ('aspnetform','form1') and
+                       props.get('method','').casefold() == 'post')
+            skip = not wrapper
+            self.form_skips.append(skip)
+        if skip:
             self.skip_depth+=1
         if tag=='title':self.in_title=True
         if tag in ('h1','h2','h3'):
@@ -97,7 +139,10 @@ class PageExtractor(HTMLParser):
         if tag in ('p','h1','h2','h3','li','article','section','br'):
             self.blocks.append('\n')
     def handle_endtag(self,tag):
-        if tag in SKIP_TAGS:self.skip_depth=max(0,self.skip_depth-1)
+        skipped = tag in SKIP_TAGS
+        if tag=='form':
+            skipped = self.form_skips.pop() if self.form_skips else False
+        if skipped:self.skip_depth=max(0,self.skip_depth-1)
         if tag=='title':self.in_title=False
         if tag in ('h1','h2','h3') and self.heading_stack:
             heading = ' '.join(' '.join(self.heading_stack.pop()).split())
@@ -129,16 +174,26 @@ def detect_declared_rights(html,base_url):
     return None,None
 
 
-def extract(html):
+def extract(html, *, include_raw=False):
     parser=PageExtractor()
     parser.feed(html)
-    return parser.result()
+    result = parser.result()
+    return (*result, ' '.join(parser.blocks)) if include_raw else result
+
+
+class RedirectResponse(urllib.error.HTTPError):
+    def __init__(self, url, code, message, headers, response, target_url):
+        super().__init__(url, code, message, headers, response)
+        self.target_url = target_url
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,req,fp,code,msg,headers,newurl):
-        # Protect against cross-site and private-network redirects.
-        raise WebSourceError("Redirect refused; register final URL as an explicit seed if authorized")
+        # Surface HTTP 3xx without following it. The focus scheduler may queue
+        # a validated destination with its own DNS/robots checks and pacing.
+        # urllib has normalized raw UTF-8 Location header bytes into an ASCII
+        # URL here. Retain that value instead of rereading mojibake headers.
+        raise RedirectResponse(req.full_url, code, msg, headers, fp, newurl)
 
 
 def make_fetcher():
@@ -162,6 +217,7 @@ def fetch_page(url, settings, opener=None):
                 if len(raw)>512_000:raise WebSourceError('Oversized robots.txt')
                 rules=raw.decode('utf-8',errors='replace').splitlines()
         except urllib.error.HTTPError as error:
+            error.close()
             if error.code in (404,410):
                 rules=[]
             else:
@@ -171,6 +227,10 @@ def fetch_page(url, settings, opener=None):
         _ROBOTS_CACHE[host]=(time.monotonic(),rules)
     rp=RobotFileParser()
     rp.parse(rules)
+    # urllib's parser does not implement wildcard query exclusions. Retain
+    # the conservative query restriction used by browser-search discovery.
+    if urlsplit(url).query and any(re.match(r'^\s*Disallow:\s*/\*\?[^\r\n]*$',line,re.I) for line in rules):
+        raise WebSourceError('Website disallows automated access to query URLs')
     if not rp.can_fetch(USER_AGENT,url):
         raise WebSourceError('Website disallows automated access to this URL')
     # Keep readable source URLs in storage/UI, but send a valid ASCII HTTP
@@ -191,6 +251,12 @@ def fetch_page(url, settings, opener=None):
             charset=response.headers.get_content_charset() or 'utf-8'
             return data.decode(charset,errors='replace')
     except urllib.error.HTTPError as error:
+        error.close()
+        if error.code in (301, 302, 303, 307, 308):
+            location = getattr(error, 'target_url', None) or error.headers.get('Location')
+            if not location:
+                raise WebSourceError('Redirect refused; missing Location header') from error
+            raise SourceRedirect(url, location, error.code) from error
         raise WebSourceError(f'HTTP {error.code}') from error
 
 
@@ -264,6 +330,8 @@ def discover_web(store,settings,limit=None,fetcher=None,sleep_fn=time.sleep,
     max_new=int(settings.get('web',{}).get('new_concepts_per_page',3))
     report={'status':'completed','attempted':0,'saved':0,'research_observed':0,'errors':0,'error_details':[], 'links_added':0,'concepts_added':0, 'corpus_archived':0, 'corpus_new_unique_texts':0, 'corpus_duplicates':0,
             'host_filter':host,'attempted_urls':[],'archived_urls':[]}
+    from .plain_corpus import begin_extraction_run, capture_extraction, finish_collection_cycle
+    extraction_id = 'crawl-' + time.strftime('%Y%m%dT%H%M%S', time.gmtime()) + '-' + str(time.time_ns())
     for _ in range(cap):
         if used>=daily:
             report['status']='daily_budget_exhausted';break
@@ -275,7 +343,9 @@ def discover_web(store,settings,limit=None,fetcher=None,sleep_fn=time.sleep,
         report['attempted']+=1
         try:
             html=fetcher(url) if fetcher else fetch_page(url,settings)
-            text,title,links,noai=extract(html)
+            text,title,links,noai,raw_text=extract(html, include_raw=True)
+            begin_extraction_run(store, extraction_id, 'open-web')
+            capture_extraction(store, extraction_id, report['attempted'], url, title, html, raw_text, noai=noai)
             page_parser=PageExtractor();page_parser.feed(html)
             ranked_concepts=rank_page_concepts(text,title,page_parser.headings,max_new)
             # 'noai' restricts AI training, not safe metadata-only observation.
@@ -370,4 +440,6 @@ def discover_web(store,settings,limit=None,fetcher=None,sleep_fn=time.sleep,
                 'note':'These are open research questions, not verified knowledge.'})
     report['concepts_pending']=store.pending_concepts()
     report['research_questions_open']=store.open_questions_count()
+    report['extraction_bundle']=finish_collection_cycle(store, extraction_id, 'open-web',
+        reason='no_successful_page_reads', attempted=report['attempted'])
     return report

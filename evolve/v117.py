@@ -70,7 +70,7 @@ def plan(store):
         "missing_host_count": max(0, 3 - len(hosts)),
         "rights_declarations": {str(row[0]): int(row[1]) for row in rows},
         "excluded_by_reason": inventory["excluded_by_reason"],
-        "training_rights_policy": "Only declared CC0-1.0 or PUBLIC-DOMAIN without no-AI signals; declarations require independent human rights review.",
+        "training_rights_policy": "CC0-1.0, PUBLIC-DOMAIN or explicit snapshot-specific operator approval; no-AI signals remain excluded and publisher license metadata is preserved.",
         "example_domains_count_as_real_sources": False,
         "hint": "Queue and crawl real permitted articles with corpus-seed and corpus-crawl. An archive is not training authorization.",
     }
@@ -90,6 +90,7 @@ def prepare(store):
     if any(hosts[i] & hosts[j] for i in range(3) for j in range(i+1,3)):
         raise ValueError("Host leakage across frozen splits")
     if any(x["rights"] not in ("CC0-1.0", "PUBLIC-DOMAIN")
+           and not x.get("operator_training_approved", False)
            for x in manifest["eligible_articles"]):
         raise ValueError("Noneligible declared training rights")
     return {

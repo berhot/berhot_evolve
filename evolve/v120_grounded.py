@@ -17,6 +17,7 @@ from .brain import require_torch, sha256_file
 from .v118_core import _approved_text, _sha, _words
 from .v117 import prepare
 from .v119_curiosity import _sentences
+from .training_approval import training_condition, operator_approvals, approved_for_training
 
 FORMAT = "berhot_evidence_ranker_v120"
 # A new label policy intentionally invalidates older checkpoints whose
@@ -236,8 +237,8 @@ def _inventory(store, limit_sources=200, per_source=18):
     Never use crawled UNKNOWN-rights pages or noai signals for training.
     """
     rows = store.db.execute(
-        "SELECT url FROM web_corpus_sources WHERE rights_status IN "
-        "('CC0-1.0','PUBLIC-DOMAIN') AND noai=0 ORDER BY url LIMIT ?",
+        "SELECT url FROM web_corpus_sources WHERE " +
+        training_condition() + " ORDER BY url LIMIT ?",
         (limit_sources,)).fetchall()
     facts, seen = [], set()
     for row in rows:
@@ -707,11 +708,12 @@ def diagnose_corpus(store, question=None):
     for f in facts:
         grouped.setdefault(f["url"], []).append(f)
     sources = store.db.execute(
-        "SELECT url,title,host,rights_status,noai FROM web_corpus_sources "
+        "SELECT url,title,host,rights_status,noai,sha256 FROM web_corpus_sources "
         "ORDER BY host,url LIMIT 200").fetchall()
     source_reports = []
+    approvals = operator_approvals(store)
     for row in sources:
-        eligible = row["rights_status"] in ("CC0-1.0", "PUBLIC-DOMAIN") and not row["noai"]
+        eligible = approved_for_training(row, approvals)
         matches = grouped.get(row["url"], [])
         report = {
             "url": row["url"], "title": row["title"], "host": row["host"],

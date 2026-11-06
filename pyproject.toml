@@ -20,4 +20,4 @@ evolve = "evolve.cli:main"
 include = ["evolve*"]
 
 [tool.setuptools.package-data]
-evolve = ["studio.html"]
+evolve = ["studio.html", "chat.html", "owned_gru.c"]

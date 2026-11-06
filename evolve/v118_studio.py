@@ -31,8 +31,10 @@ from .v120_grounded import (grounded_answer, train_ranker,
 from .v121_autonomy import cycle as autonomous_cycle
 from .focus_control import (PROFILE as FOCUS_PROFILE, model_size_snapshot,
                             worker_running, request_stop, start_detached)
-from .focus_training import readiness as focus_training_readiness
+from .focus_training import readiness as focus_training_readiness, train_if_eligible as train_focus_language
 from .focus_data import review_leads as focus_review_leads
+from .focus_inference import FocusGenerator, brain_status
+from .training_approval import training_condition, operator_approvals, future_approval_policy
 
 HOST = "127.0.0.1"
 MAX_BODY = 16384
@@ -48,6 +50,25 @@ def _safe_int(value, minimum, maximum):
     return value
 
 
+def _current_cycle_progress(store, run):
+    """Read actual current-batch fetch events; completed counts stay separate."""
+    args = (FOCUS_PROFILE, run.get("run_id", ""))
+    start = store.db.execute(
+        "SELECT id FROM focus_activity_events WHERE profile=? AND run_id=? "
+        "AND kind='search_check' ORDER BY id DESC LIMIT 1", args).fetchone()
+    if start is None:
+        return {"current_cycle_attempts": 0, "current_cycle_active": False}
+    end = store.db.execute(
+        "SELECT id FROM focus_activity_events WHERE profile=? AND run_id=? "
+        "AND kind='cycle_finished' AND id>? ORDER BY id DESC LIMIT 1",
+        (*args, start["id"])).fetchone()
+    active = end is None and run.get("status") not in ("stopped", "completed")
+    count = store.db.execute(
+        "SELECT COUNT(*) FROM focus_activity_events WHERE profile=? AND run_id=? "
+        "AND kind='fetch_started' AND id>?", (*args, start["id"])).fetchone()[0] if active else 0
+    return {"current_cycle_attempts": count, "current_cycle_active": active}
+
+
 class LearningController:
     def __init__(self, settings, interval=3600):
         self.settings = settings
@@ -60,11 +81,39 @@ class LearningController:
         self.stop_event = Event()
         self.started_at = time.monotonic()
         self.focus_launch_at = 0.0
+        self.qa_plan_cache = None
+        self.qa_plan_cache_lock = RLock()
+        self.focus_generator = FocusGenerator()
         self.monitor = Thread(target=self._monitor_loop, daemon=True)
         self.monitor.start()
 
     def _store(self):
         return Store(self.settings["storage_root"])
+
+    def _qa_readiness_snapshot(self, store, examples, lessons):
+        """Cache only the expensive QA report, never live worker counters.
+
+        Training itself still rebuilds and verifies its actual input files.
+        """
+        sources = store.db.execute(
+            "SELECT s.url,s.host,s.title,s.rights_status,s.noai,s.sha256,"
+            "t.clean_path,t.words,t.characters,t.quality_score "
+            "FROM web_corpus_sources s JOIN web_corpus_texts t ON t.sha256=s.sha256 "
+            "ORDER BY s.url").fetchall()
+        approvals = store.db.execute(
+            "SELECT url,clean_sha256 FROM corpus_training_approvals ORDER BY url,clean_sha256"
+        ).fetchall()
+        revision = hashlib.sha256(json.dumps(
+            [[list(r) for r in sources], [list(r) for r in approvals], examples, lessons],
+            ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+        with self.qa_plan_cache_lock:
+            cached = self.qa_plan_cache
+            if cached and cached["revision"] == revision and time.monotonic() < cached["expires"]:
+                return cached["report"]
+            report = qa_readiness(store)
+            self.qa_plan_cache = {"revision": revision, "report": report,
+                                  "expires": time.monotonic() + 30}
+            return report
 
     def shutdown(self):
         self.stop_event.set()
@@ -84,8 +133,7 @@ class LearningController:
                 "FROM web_corpus_texts").fetchone()
             approved = store.db.execute(
                 "SELECT COUNT(*) AS articles,COUNT(DISTINCT host) AS hosts "
-                "FROM web_corpus_sources WHERE noai=0 AND "
-                "rights_status IN ('CC0-1.0','PUBLIC-DOMAIN')").fetchone()
+                "FROM web_corpus_sources WHERE " + training_condition()).fetchone()
             pending = store.db.execute(
                 "SELECT COUNT(*) FROM web_frontier WHERE status='pending'"
             ).fetchone()[0]
@@ -104,7 +152,7 @@ class LearningController:
             focus_model = store.get("focus_train_latest_" + FOCUS_PROFILE) or {}
             size = model_size_snapshot(store)
             previous_autonomy = store.get("v121_last_cycle") or {}
-            qa_plan = qa_readiness(store) if (qa_examples or auto_lessons) else {
+            qa_plan = self._qa_readiness_snapshot(store, qa_examples, auto_lessons) if (qa_examples or auto_lessons) else {
                 "status": "needs_source_grounded_examples"}
             job = store.get("v118_last_job")
             history = store.get("v118_job_history", []) or []
@@ -129,13 +177,16 @@ class LearningController:
                 "status": "online", "time_utc": _utc(),
                 "studio_backend_version": "1.30.0",
                 "studio_api_version": 4,
-                "supported_chat_modes": ["auto", "grounded", "sources", "char", "byte_bpe", "qa"],
+                "supported_chat_modes": ["focus"] if (store.get('focus_execution_policy') or {}).get('engine')=='first_party_c'
+                    else ["auto", "grounded", "sources", "char", "byte_bpe", "qa", "focus", "focus_qa"],
+                "runtime_policy": store.get('focus_execution_policy') or {},
                 "research_budget": budget,
                 "server_uptime_seconds": int(time.monotonic() - self.started_at),
                 "archived_pages": int(rows["pages"]),
                 "archived_characters": int(rows["chars"]),
                 "rights_eligible_articles": int(approved["articles"]),
                 "rights_eligible_hosts": int(approved["hosts"]),
+                "future_training_approval": bool(future_approval_policy(store).get("enabled")),
                 "pending_crawl_urls": int(pending),
                 "human_reviewed_qa_examples": len(qa_examples),
                 "source_derived_lessons": curiosity["source_derived_lessons"],
@@ -177,6 +228,12 @@ class LearningController:
                 "model_size": size,
                 "focus_agent": {
                     "profile": FOCUS_PROFILE,
+                    "training_engine": focus_model.get('training_engine','legacy_pytorch'),
+                    "supervised_qa_steps": focus_model.get('supervised_qa_steps_total',0),
+                    "supervised_qa_dataset": store.get('focus_supervised_qa_latest'),
+                    "autonomous_pipeline": bool((store.get('focus_execution_policy') or {}).get('autonomous_pipeline')),
+                    "full_pass": store.get('focus_full_pass_progress'),
+                    "network_enabled": focus_run.get('network_enabled',False),
                     "focus": "تاريخ المملكة العربية السعودية",
                     "status": (
                         focus_run.get("status") if focus_live
@@ -238,6 +295,10 @@ class LearningController:
                     "training_steps_this_run": focus_run.get(
                         "training_steps_this_run", 0),
                     "accepted_training_steps": focus_model.get("steps_total", 0),
+                    "accepted_validation_before": focus_model.get("validation_before"),
+                    "accepted_validation_after": focus_model.get("validation_after"),
+                    "accepted_checkpoint_sha256": focus_model.get("sha256"),
+                    "accepted_split_method": focus_model.get("split_method"),
                     "training_status": focus_run.get("training_status", "not_started"),
                     "observed_research_articles": len(focus_observations),
                     "distinct_research_hosts": len({
@@ -251,6 +312,9 @@ class LearningController:
                         "search_status", "not_checked"),
                     "last_sitemap_discovery": focus_run.get(
                         "last_sitemap_discovery"),
+                    "last_extraction_bundle": focus_run.get("last_extraction_bundle"),
+                    "last_cycle_extraction": focus_run.get("last_cycle_extraction"),
+                    "plain_dataset": store.get("focus_plain_dataset_latest_" + FOCUS_PROFILE),
                     "search_diagnostic": {
                         key: (focus_run.get("last_search_diagnostic") or {}).get(key)
                         for key in ("status", "provider", "error_type",
@@ -332,6 +396,7 @@ class LearningController:
                     pass
 
             latest_cycle = None
+            current_cycle = _current_cycle_progress(store, run)
             recent_cycle = store.db.execute(
                 "SELECT details,created_at FROM runs "
                 "WHERE action='focus_cycle' ORDER BY id DESC LIMIT 1"
@@ -355,6 +420,7 @@ class LearningController:
 
             sources = []
             questions = []
+            approvals = operator_approvals(store)
             for record in observations:
                 if not isinstance(record, dict):
                     continue
@@ -365,6 +431,8 @@ class LearningController:
                     "rights": record.get("rights", "UNKNOWN"),
                     "noai": bool(record.get("noai")),
                     "sha256": record.get("source_sha256"),
+                    "operator_training_approved": (
+                        record.get("url"), record.get("source_sha256")) in approvals,
                     "candidate_questions": len(record.get("curiosity", [])),
                 }
                 sources.append(source)
@@ -449,7 +517,13 @@ class LearningController:
                     "validation_before": record.get("validation_before"),
                     "validation_after": record.get("validation_after"),
                     "heldout_test_loss_diagnostic": record.get(
-                        "heldout_publisher_test_loss_diagnostic"),
+                        "heldout_test_loss_diagnostic", record.get("heldout_publisher_test_loss_diagnostic")),
+                    "split_method": record.get("split_method", "heldout_source_hosts"),
+                    "model_config": record.get("model_config"),
+                    "trainable_parameters": record.get("trainable_parameters"),
+                    "expanded_accepted_weights": record.get("expanded_accepted_weights", False),
+                    "plain_dataset_directory": record.get("plain_dataset_directory"),
+                    "independent_publisher_evaluation": record.get("independent_publisher_evaluation", True),
                     "train_loss_last_batch": record.get(
                         "train_loss_last_batch"),
                     "sha256": record.get("sha256"),
@@ -478,6 +552,8 @@ class LearningController:
                     "cycles_completed_this_run": run.get("cycles_completed", 0),
                     "last_cycle_attempts": run.get("last_cycle_pages_attempted", 0),
                     "last_cycle_target": run.get("last_cycle_page_target", 0),
+                    "pages_per_cycle_target": run.get("pages_per_cycle_target", 0),
+                    **current_cycle,
                     "last_cycle_idle_reason": run.get("last_cycle_idle_reason"),
                     "last_archive_recovery": run.get("last_archive_recovery"),
                     "last_sitemap_discovery": run.get("last_sitemap_discovery"),
@@ -505,6 +581,9 @@ class LearningController:
                     "pending_frontier_urls": len(pending),
                     "source_records_truncated_to_latest": 30,
                     "research_only_not_trainable_by_default": True,
+                    "last_extraction_bundle": run.get("last_extraction_bundle"),
+                    "last_cycle_extraction": run.get("last_cycle_extraction"),
+                    "plain_dataset": store.get("focus_plain_dataset_latest_" + profile),
                 },
                 "curiosity": {
                     "unverified_question_count": len(questions),
@@ -522,6 +601,13 @@ class LearningController:
                 "training": {
                     "eligibility_status": trainable["status"],
                     "approved_pages": trainable["rights_eligible_arabic_pages"],
+                    "operator_approved_pages": trainable["operator_approved_arabic_pages"],
+                    "required_independent_hosts": trainable["required_independent_hosts"],
+                    "split_method": trainable["split_method"],
+                    "article_holdout_enabled": trainable["article_holdout_enabled"],
+                    "independent_publisher_evaluation": trainable["independent_publisher_evaluation"],
+                    "documents_by_split": trainable["documents_by_split"],
+                    "future_operator_approval_enabled": bool(future_approval_policy(store).get("enabled")),
                     "approved_independent_hosts": len(
                         trainable["rights_eligible_arabic_hosts"]),
                     "source_hosts_by_split": trainable["source_hosts_by_split"],
@@ -598,13 +684,51 @@ class LearningController:
         finally:
             store.close()
 
-    def talk(self, question, mode):
+    def brain(self):
+        store = self._store()
+        try:
+            return brain_status(store)
+        finally:
+            store.close()
+
+    def datasets(self):
+        from .dataset_catalog import dataset_inventory
+        store = self._store()
+        try:
+            return dataset_inventory(store)
+        finally:
+            store.close()
+
+    def talk(self, question, mode, **generation):
+        policy_store=self._store()
+        try:
+            if (policy_store.get('focus_execution_policy') or {}).get('engine')=='first_party_c' and mode!='focus':
+                raise ValueError('Owned mode uses your local first-party model. Open /chat to test it; legacy model/search modes are disabled.')
+        finally:
+            policy_store.close()
         with self.lock:
             if self.active and self.active.is_alive() and mode not in (
                     "sources", "auto", "grounded"):
                 raise ValueError("Neural chat is disabled while training; use source lookup")
         store = self._store()
         try:
+            if mode=='focus_qa':
+                if not isinstance(question,str) or not 1<=len(question.strip())<=200:
+                    raise ValueError('Question must contain 1..200 characters')
+                accepted=store.get('focus_train_latest_'+FOCUS_PROFILE) or {}
+                if not accepted.get('instruction_tuned'):
+                    return {'status':'qa_not_trained_yet','answer':'','note':'A supervised QA checkpoint has not been accepted yet. Raw continuation remains available.'}
+                from .supervised_corpus import question_prompt
+                result=self.focus_generator.generate(store,question_prompt(question),**generation)
+                if result.get('status')=='generated':
+                    result['raw_model_continuation']=result['answer']
+                    result['answer']=result['answer'].split('<|end|>',1)[0].strip()
+                    result.update(mode='focus_qa',answer_verified=False,supervised_qa=True)
+                return result
+            if mode == "focus":
+                if set(generation) - {"max_new_bytes", "temperature", "top_k", "seed"}:
+                    raise ValueError("Unknown generation setting")
+                return self.focus_generator.generate(store, question, **generation)
             if mode in ("auto", "grounded"):
                 result = grounded_answer(store, question)
                 if mode == "auto" and result.get("status") == "no_definition":
@@ -641,6 +765,12 @@ class LearningController:
     def set_auto(self, enabled):
         if type(enabled) is not bool:
             raise ValueError("Auto enabled must be true or false")
+        policy_store=self._store()
+        try:
+            if enabled and (policy_store.get('focus_execution_policy') or {}).get('engine')=='first_party_c':
+                raise ValueError('Use the owned learning worker; legacy automatic jobs are disabled in owned mode.')
+        finally:
+            policy_store.close()
         with self.lock:
             self.auto_enabled = enabled
             if enabled:
@@ -651,8 +781,14 @@ class LearningController:
                 "warning": "Only detects new eligible datasets and trains bounded experiments. Does not approve rights or gather new sites by itself."}
 
     def submit(self, kind, steps=None, automatic=False, question=None):
-        if kind not in ("language", "qa", "crawl", "research", "self-study", "grounded-ranker", "curiosity-cycle"):
-            raise ValueError("Allowed jobs: language, qa, crawl, research, self-study, grounded-ranker, curiosity-cycle")
+        policy_store=self._store()
+        try:
+            if (policy_store.get('focus_execution_policy') or {}).get('engine')=='first_party_c' and kind!='focus-language':
+                return {'status':'unavailable','reason':'Legacy/external-runtime jobs are disabled in owned mode.'}
+        finally:
+            policy_store.close()
+        if kind not in ("language", "focus-language", "qa", "crawl", "research", "self-study", "grounded-ranker", "curiosity-cycle"):
+            raise ValueError("Allowed jobs: language, focus-language, qa, crawl, research, self-study, grounded-ranker, curiosity-cycle")
         if kind == "research" and (not isinstance(question, str) or
                                     not 1 <= len(question.strip()) <= 180):
             raise ValueError("Research requires a short question")
@@ -661,6 +797,14 @@ class LearningController:
                      else 60 if kind in ("qa", "self-study")
                      else 2 if kind == "research" else 4 if kind == "curiosity-cycle" else 5)
         steps = _safe_int(steps, 1, 500 if kind != "crawl" else 10)
+        if kind == "focus-language":
+            steps = _safe_int(steps, 1, 120)
+            store = self._store()
+            try:
+                if worker_running(store, FOCUS_PROFILE):
+                    return {"status": "busy", "reason": "Focus worker already manages Arabic training"}
+            finally:
+                store.close()
         with self.lock:
             if self.active is not None and self.active.is_alive():
                 return {"status": "busy", "reason": "A training/crawl job is running"}
@@ -705,6 +849,16 @@ class LearningController:
                 progress("data_validation", 0, 2 * steps, None)
                 result = train_language(store, self.settings,
                                         steps=steps, progress=progress)
+            elif job["kind"] == "focus-language":
+                progress("arabic_corpus_readiness", 0, steps, None)
+                def focus_progress(step, target, loss):
+                    progress("training_saved_arabic_corpus", step, target, loss)
+                result = train_focus_language(store, FOCUS_PROFILE, steps=steps,
+                                              progress=focus_progress)
+                store.append_focus_activity(FOCUS_PROFILE, "studio-training-" + job["id"],
+                    _utc(), "saved_corpus_training_result", phase="training_result",
+                    detail=(str(result.get("status")) + " · " + str(result.get("steps", 0)) +
+                            " real optimizer steps · accepted: " + str(result.get("accepted", False))))
             elif job["kind"] == "qa":
                 progress("qa_readiness", 0, steps, None)
                 result = train_qa(store, self.settings,
@@ -766,6 +920,12 @@ class LearningController:
                     "neural_training_status":
                         (res.get("neural_training") or {}).get("status"),
                     "research_requests": res.get("new_requests_this_cycle"),
+                    "accepted": res.get("accepted"),
+                    "training_steps": res.get("steps"),
+                    "validation_before": res.get("validation_before"),
+                    "validation_after": res.get("validation_after"),
+                    "checkpoint_sha256": res.get("sha256"),
+                    "split_method": res.get("split_method"),
                 }
                 del job["result"]
             try:
@@ -810,8 +970,8 @@ class LearningController:
                 # attempt per rights-approved content revision; never retry a
                 # rejected model forever on the exact same examples.
                 revision_rows = store.db.execute(
-                    "SELECT url,sha256 FROM web_corpus_sources WHERE noai=0 "
-                    "AND rights_status IN ('CC0-1.0','PUBLIC-DOMAIN') "
+                    "SELECT url,sha256 FROM web_corpus_sources WHERE " +
+                    training_condition() + " "
                     "ORDER BY url").fetchall()
                 revision = hashlib.sha256(json.dumps(
                     [[r["url"], r["sha256"]] for r in revision_rows]
@@ -882,9 +1042,11 @@ class LearningController:
 def _handler(controller, token, origin):
     class StudioHandler(BaseHTTPRequestHandler):
         server_version = "BERHOT-Studio/1.30"
-        def _headers(self, code, content_type):
+        def _headers(self, code, content_type, content_length=None):
             self.send_response(code)
             self.send_header("Content-Type", content_type)
+            if content_length is not None:
+                self.send_header('Content-Length',str(content_length))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "no-referrer")
@@ -904,21 +1066,51 @@ def _handler(controller, token, origin):
         def _reply(self, result, code=200):
             data = json.dumps(result, ensure_ascii=False,
                               allow_nan=False).encode("utf-8")
-            self._headers(code, "application/json; charset=utf-8")
-            self.wfile.write(data)
+            try:
+                self._headers(code, "application/json; charset=utf-8",len(data))
+                self.wfile.write(data)
+            except (BrokenPipeError,ConnectionResetError):
+                # A refreshed/closed browser can cancel polling responses.
+                self.close_connection=True
+
+        def _reject_post(self, result):
+            # Discard a small declared body before closing the connection.
+            # Otherwise unread TCP data can reset the connection and discard
+            # the legitimate 403 response. Bound bytes AND waiting time.
+            try:
+                size=int(self.headers.get('Content-Length','0'))
+            except ValueError:
+                size=0
+            if 0<size<=MAX_BODY:
+                timeout=self.connection.gettimeout()
+                try:
+                    self.connection.settimeout(.25);self.rfile.read(size)
+                except OSError:
+                    pass
+                finally:
+                    self.connection.settimeout(timeout)
+            return self._reply(result,403)
 
         def do_GET(self):
             if not self._host_ok():
                 return self._reply({"error": "host_not_allowed"}, 403)
-            if self.path == "/":
+            if self.path in ("/", "/chat", "/chat/"):
                 template = (Path(__file__).resolve().parent /
-                            "studio.html").read_text(encoding="utf-8")
+                            ("studio.html" if self.path == "/" else "chat.html")).read_text(encoding="utf-8")
                 page = template.replace("__EVOLVE_TOKEN__",
                                         html.escape(token, quote=True))
-                self._headers(200, "text/html; charset=utf-8")
-                self.wfile.write(page.encode("utf-8"))
+                data=page.encode('utf-8')
+                try:
+                    self._headers(200, "text/html; charset=utf-8",len(data))
+                    self.wfile.write(data)
+                except (BrokenPipeError,ConnectionResetError):
+                    self.close_connection=True
             elif self.path == "/api/status":
                 self._reply(controller.status())
+            elif self.path == "/api/brain":
+                self._reply(controller.brain())
+            elif self.path == "/api/datasets":
+                self._reply(controller.datasets())
             elif self.path == "/api/plan":
                 self._reply(controller.plan())
             elif self.path == "/api/focus/inspector":
@@ -945,12 +1137,12 @@ def _handler(controller, token, origin):
 
         def do_POST(self):
             if not self._host_ok():
-                return self._reply({"error": "host_not_allowed"}, 403)
+                return self._reject_post({"error": "host_not_allowed"})
             if self.headers.get("Origin") != origin:
-                return self._reply({"error": "origin_not_allowed"}, 403)
+                return self._reject_post({"error": "origin_not_allowed"})
             if not secrets.compare_digest(self.headers.get("X-Evolve-Key", ""),
                                           token):
-                return self._reply({"error": "csrf_token_required"}, 403)
+                return self._reject_post({"error": "csrf_token_required"})
             try:
                 size = int(self.headers.get("Content-Length", "0"))
                 if not 0 < size <= MAX_BODY:
@@ -959,7 +1151,8 @@ def _handler(controller, token, origin):
                 if not isinstance(body, dict):
                     raise ValueError("Expected JSON object")
                 if self.path == "/api/chat":
-                    result = controller.talk(body.get("question"), body.get("mode", "sources"))
+                    generation = {k: body[k] for k in ("max_new_bytes", "temperature", "top_k", "seed") if k in body}
+                    result = controller.talk(body.get("question"), body.get("mode", "sources"), **generation)
                 elif self.path == "/api/lesson":
                     result = controller.lesson(body.get("question"), body.get("answer"),
                                                body.get("url"))

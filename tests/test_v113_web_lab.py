@@ -58,6 +58,32 @@ def settings(folder):
 
 
 class CorpusCurationAndFreezeTests(unittest.TestCase):
+    def test_indexed_near_copy_filter_preserves_jaccard_decisions(self):
+        import copy
+        import random
+        from evolve.web_lab import _shingles
+        rng = random.Random(42)
+        texts = [" ".join(str(rng.randrange(20)) for _ in range(80)) for _ in range(35)]
+        texts += [texts[0], texts[1] + " tail", "", "one two three", texts[2].replace("1", "x", 1)]
+        for threshold in (0, .5, .86, 1):
+            actual = [{"chunks": [{"text": text} for text in texts]}]
+            expected = copy.deepcopy(actual)
+            kept, dropped = [], 0
+            filtered = []
+            for chunk in expected[0]["chunks"]:
+                shingles = _shingles(chunk["text"])
+                near = bool(shingles) and any(
+                    len(shingles & prior) / len(shingles | prior) >= threshold
+                    for prior in kept)
+                if near:
+                    dropped += 1
+                else:
+                    kept.append(shingles)
+                    filtered.append(chunk)
+            expected[0]["chunks"] = filtered
+            self.assertEqual(_remove_near_copies(actual, threshold), dropped)
+            self.assertEqual(actual, expected)
+
     def test_no_uninformed_rights_training_and_navigation_exclusion(self):
         with tempfile.TemporaryDirectory() as folder:
             store = make_store(folder)

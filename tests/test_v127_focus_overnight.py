@@ -40,7 +40,7 @@ def fake_page(text):
 class FocusDataTests(unittest.TestCase):
     def test_profile_and_real_arabic_content_derived_questions(self):
         p = get_profile("saudi-history-ar")
-        self.assertEqual(len(p["initial_seed_hosts"]), 3)
+        self.assertGreaterEqual(len(p["initial_seed_hosts"]), 10)
         self.assertEqual(
             p["discovery_scope"],
             "topic_driven_cross_publisher_no_fixed_host_allowlist")
